@@ -35,7 +35,7 @@ jobs:
       - name: Typecheck / Lint
         run: bun run lint
 
-      - name: Build MikaNotes PWA (GitHub Pages base: /MikaNotes/)
+      - name: "Build MikaNotes PWA (GitHub Pages base: /MikaNotes/)"
         env:
           BASE_PATH: /MikaNotes/
           GITHUB_ACTIONS: 'true'
