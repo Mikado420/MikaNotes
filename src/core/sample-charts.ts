@@ -12,6 +12,33 @@ export interface PresetChart {
 
 export const PRESET_CHARTS: PresetChart[] = [
   {
+    id: 'reference_demo',
+    name: 'Reference UI Demo (example.tja)',
+    category: 'Featured',
+    description: 'Exact chart scene from MikaNotes Phase 2 UI design reference image',
+    tja: `TITLE:example.tja
+BPM:150
+COURSE:Oni
+LEVEL:8
+
+#START
+#MEASURE 4/4
+0000000000000000,
+3000000000000000,
+#GOGOSTART
+2020100020201000,
+2020100000000000,
+#GOGOEND
+#MEASURE 3/4
+#BPMCHANGE 180
+201080201000,
+#MEASURE 4/4
+8020102010000000,
+#BPMCHANGE 200
+2010100000000000,
+#END`,
+  },
+  {
     id: 'standard',
     name: 'Standard Taiko Chart',
     category: 'Basic',

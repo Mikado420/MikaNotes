@@ -15,6 +15,7 @@ import {
 } from './core';
 import { runAllCoreTests, TestCaseResult } from './core/test-suite';
 import { PRESET_CHARTS } from './core/sample-charts';
+import { EditorShell } from './components/editor/EditorShell';
 import {
   CheckCircle2,
   XCircle,
@@ -32,11 +33,13 @@ import {
   Layers,
   ChevronRight,
   ShieldAlert,
+  Smartphone,
 } from 'lucide-react';
 import { usePWAUpdate, PWAUpdateNotification, PWAInstallButton } from './pwa';
 
 export default function App() {
   const pwaState = usePWAUpdate();
+  const [viewMode, setViewMode] = useState<'editor' | 'workbench'>('editor');
   const [activeTab, setActiveTab] = useState<'tests' | 'playground' | 'roundtrip' | 'timeline' | 'design'>('tests');
   const [testResults, setTestResults] = useState<TestCaseResult[]>(() => runAllCoreTests());
   const [testCategoryFilter, setTestCategoryFilter] = useState<string>('all');
@@ -147,6 +150,17 @@ export default function App() {
     return t.category === testCategoryFilter;
   });
 
+  // Default to Mobile Landscape Visual Editor (Phase 2)
+  if (viewMode === 'editor') {
+    return (
+      <EditorShell
+        initialTja={PRESET_CHARTS[0].tja}
+        initialFileName="example.tja"
+        onSwitchToWorkbench={() => setViewMode('workbench')}
+      />
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
       {/* Header */}
@@ -168,6 +182,16 @@ export default function App() {
 
         {/* Global Metric Badges */}
         <div className="flex items-center gap-3 text-xs">
+          {/* Back to Mobile Editor Button */}
+          <button
+            id="btn-switch-to-editor"
+            onClick={() => setViewMode('editor')}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-semibold transition-all shadow-md active:scale-95"
+          >
+            <Smartphone className="w-4 h-4" />
+            <span>Visual Editor (Phase 2) へ</span>
+          </button>
+
           {/* PWA Install Button */}
           <PWAInstallButton />
 
