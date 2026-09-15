@@ -3,7 +3,7 @@
  * Reconstructs standard TJA text from ChartModel with full preservation
  */
 
-import { ChartModel, CourseModel, MeasureModel, WriterOptions } from './types';
+import { ChartModel, CourseModel, MeasureModel, RationalPosition, WriterOptions } from './types';
 import { calculateArrayLCM, formatBpm, gcd } from './math';
 
 export function writeTJA(chart: ChartModel, options: WriterOptions = {}): string {
@@ -45,6 +45,15 @@ export function writeTJA(chart: ChartModel, options: WriterOptions = {}): string
   return lines.join('\n').trim() + '\n';
 }
 
+interface RollMarker {
+  pos: RationalPosition;
+  type: string;
+}
+
+interface RollEndMarker {
+  pos: RationalPosition;
+}
+
 function writeCourse(course: CourseModel, lines: string[], globalHeaders: any) {
   lines.push(`COURSE:${course.courseName || 'Oni'}`);
   lines.push(`LEVEL:${course.headers?.level ?? 10}`);
@@ -60,16 +69,16 @@ function writeCourse(course: CourseModel, lines: string[], globalHeaders: any) {
   lines.push('');
   lines.push('#START');
 
-  // Track rolls and balloons by measure index
-  const rollStartsByMeasure = new Map<number, { pos: number; type: string }[]>();
-  const rollEndsByMeasure = new Map<number, { pos: number }[]>();
+  // Track rolls and balloons by measure index using direct RationalPosition
+  const rollStartsByMeasure = new Map<number, RollMarker[]>();
+  const rollEndsByMeasure = new Map<number, RollEndMarker[]>();
 
   for (const r of course.rolls) {
     if (!rollStartsByMeasure.has(r.startMeasureIndex)) {
       rollStartsByMeasure.set(r.startMeasureIndex, []);
     }
     rollStartsByMeasure.get(r.startMeasureIndex)!.push({
-      pos: r.startPosition.fraction,
+      pos: r.startPosition,
       type: r.rawType,
     });
 
@@ -77,7 +86,7 @@ function writeCourse(course: CourseModel, lines: string[], globalHeaders: any) {
       rollEndsByMeasure.set(r.endMeasureIndex, []);
     }
     rollEndsByMeasure.get(r.endMeasureIndex)!.push({
-      pos: r.endPosition.fraction,
+      pos: r.endPosition,
     });
   }
 
@@ -86,7 +95,7 @@ function writeCourse(course: CourseModel, lines: string[], globalHeaders: any) {
       rollStartsByMeasure.set(b.startMeasureIndex, []);
     }
     rollStartsByMeasure.get(b.startMeasureIndex)!.push({
-      pos: b.startPosition.fraction,
+      pos: b.startPosition,
       type: '7',
     });
 
@@ -94,7 +103,7 @@ function writeCourse(course: CourseModel, lines: string[], globalHeaders: any) {
       rollEndsByMeasure.set(b.endMeasureIndex, []);
     }
     rollEndsByMeasure.get(b.endMeasureIndex)!.push({
-      pos: b.endPosition.fraction,
+      pos: b.endPosition,
     });
   }
 
@@ -111,11 +120,10 @@ function writeMeasure(
   measure: MeasureModel,
   mIdx: number,
   lines: string[],
-  rollStarts: { pos: number; type: string }[],
-  rollEnds: { pos: number }[]
+  rollStarts: RollMarker[],
+  rollEnds: RollEndMarker[]
 ) {
-  // If the measure had an explicit raw string and it matches division, use it as initial base
-  // Otherwise calculate optimal division using LCM
+  // Collect all rational denominators in this measure
   const denominators: number[] = [];
 
   if (measure.division && measure.division > 0) {
@@ -129,13 +137,23 @@ function writeMeasure(
   }
 
   for (const rs of rollStarts) {
-    denominators.push(getFractionDenominator(rs.pos));
+    if (rs.pos && rs.pos.denominator > 0) {
+      denominators.push(rs.pos.denominator);
+    }
   }
   for (const re of rollEnds) {
-    denominators.push(getFractionDenominator(re.pos));
+    if (re.pos && re.pos.denominator > 0) {
+      denominators.push(re.pos.denominator);
+    }
   }
 
-  // Calculate division for this measure
+  for (const ev of measure.events) {
+    if (ev.positionInMeasure && ev.positionInMeasure.denominator > 0) {
+      denominators.push(ev.positionInMeasure.denominator);
+    }
+  }
+
+  // Calculate division for this measure via LCM
   let division = measure.division || 1;
   if (denominators.length > 0) {
     division = calculateArrayLCM(denominators, 3840);
@@ -145,21 +163,21 @@ function writeMeasure(
   // Build character array of length `division`
   const charArray: string[] = new Array(division).fill('0');
 
-  // Place regular notes
+  // Place regular notes using Rational Position
   for (const n of measure.notes) {
-    const idx = Math.min(division - 1, Math.max(0, Math.round(n.positionInMeasure.fraction * division)));
+    const idx = getRationalIndex(n.positionInMeasure, division, division - 1);
     charArray[idx] = n.type;
   }
 
-  // Place roll starts
+  // Place roll starts using Rational Position
   for (const rs of rollStarts) {
-    const idx = Math.min(division - 1, Math.max(0, Math.round(rs.pos * division)));
+    const idx = getRationalIndex(rs.pos, division, division - 1);
     charArray[idx] = rs.type;
   }
 
-  // Place roll ends
+  // Place roll ends using Rational Position
   for (const re of rollEnds) {
-    const idx = Math.min(division - 1, Math.max(0, Math.round(re.pos * division)));
+    const idx = getRationalIndex(re.pos, division, division - 1);
     // If not overwritten by a note or if currently 0
     if (charArray[idx] === '0') {
       charArray[idx] = '8';
@@ -168,13 +186,13 @@ function writeMeasure(
     }
   }
 
-  // Group commands by note index
-  // Commands with fraction 0 or at start belong at beginning of measure
+  // Group commands by note index using Rational Position
+  // Commands positioned at division (i.e. at end before comma) go in commandsByNoteIndex[division]
   const commandsByNoteIndex: Record<number, string[]> = {};
   for (const ev of measure.events) {
     let notePos = 0;
-    if (ev.positionInMeasure && ev.positionInMeasure.fraction > 0) {
-      notePos = Math.min(division, Math.max(0, Math.round(ev.positionInMeasure.fraction * division)));
+    if (ev.positionInMeasure) {
+      notePos = getRationalIndex(ev.positionInMeasure, division, division);
     }
     if (!commandsByNoteIndex[notePos]) commandsByNoteIndex[notePos] = [];
     commandsByNoteIndex[notePos].push(ev.raw);
@@ -214,18 +232,30 @@ function writeMeasure(
   lines.push(measureStr);
 }
 
-function getFractionDenominator(fraction: number, maxDenominator: number = 64): number {
-  if (fraction <= 0 || fraction >= 1) return 1;
-  let bestDenom = 1;
-  let minError = 1.0;
-
-  for (let d = 1; d <= maxDenominator; d++) {
-    const error = Math.abs(fraction - Math.round(fraction * d) / d);
-    if (error < minError) {
-      minError = error;
-      bestDenom = d;
-      if (error < 1e-6) break;
-    }
+/**
+ * Calculates the exact discrete note or event index within a measure using rational numbers.
+ * Primary formula: index = Math.round((numerator * division) / denominator)
+ * The numerator/denominator representation is treated as the primary truth.
+ * Falls back to fraction * division only if denominator is non-positive or unavailable.
+ */
+function getRationalIndex(
+  pos: RationalPosition | undefined,
+  division: number,
+  maxLimit: number
+): number {
+  if (!pos) return 0;
+  if (
+    typeof pos.numerator === 'number' &&
+    typeof pos.denominator === 'number' &&
+    pos.denominator > 0
+  ) {
+    const raw = (pos.numerator * division) / pos.denominator;
+    const rounded = Math.round(raw);
+    return Math.min(maxLimit, Math.max(0, rounded));
   }
-  return bestDenom;
+  if (typeof pos.fraction === 'number' && !isNaN(pos.fraction)) {
+    const rounded = Math.round(pos.fraction * division);
+    return Math.min(maxLimit, Math.max(0, rounded));
+  }
+  return 0;
 }

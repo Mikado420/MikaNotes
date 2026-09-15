@@ -13,7 +13,7 @@ MikaNotesはスマートフォン特化型TJAエディタを目指すプロジ�
 | :--- | :--- | :--- |
 | **責務の分離** | `tja-parser.js` 内で構文解析、タイムライン計算、DOM生成（canvas/UI用オブジェクト）、グローバルstate更新が混然一体となっていた。 | **UIと完全分離された純粋データ層**として再設計。DOM非依存・ステートレスで、Node.js/WebWorker/ブラウザどこでも同一動作。 |
 | **データ構造** | 1つの小節が巨大なフラット配列となり、ノーツの正確な拍位置や小節内分数位置（Rational Position）が欠落していた。 | `ChartModel` > `CourseModel` > `MeasureModel` > `NoteModel` / `RollModel` / `BalloonModel` / `CommandModel` の階層構造。有理数位置 `{ numerator, denominator, fraction }` を保持。 |
-| **可逆変換 (Round Trip)** | パーサーからモデル化する過程で、`#SCROLL`、`#DELAY`、`#LYRIC`、コース独自ヘッダー、未知の拡張コマンドが破棄されていた。 | **Preservation First原則**。全未知ヘッダーは `rawHeaders`、全未知/表示用コマンドは `isSemantic: false` のイベントとして完全保持され、Writerで100%出力復元。 |
+| **意味的可逆変換 (Semantic Round Trip)** | パーサーからモデル化する過程で、`#SCROLL`、`#DELAY`、`#LYRIC`、コース独自ヘッダー、未知の拡張コマンドが破棄されていた。 | **Preservation First原則**。全未知ヘッダーは `rawHeaders`、全未知/表示用コマンドは `isSemantic: false` のイベントとして完全保持。元TJAの無意味な空白や表記ゆれの100%文字復元ではなく、ノーツ・有理数位置・時間・イベント・未知情報を忠実に維持する「Semantic Round-trip」を実現。 |
 | **連打・風船のペアリング** | `5..8`、`6..8`、`7..8` の開始/終了管理がフラットな文字走査で行われ、未終了や連続開始時に状態が不正になりやすかった。 | `RollModel` / `BalloonModel` を構造化オブジェクトとして独立抽出し、BALLOONヘッダーとの連番結合、未終了時の自動終端処理を実装。 |
 | **フリーズ・巨大譜面対策** | `#MEASURE 99999999/1` や極端な高BPM、数万行の異常譜面でブラウザがハングするリスクがあった。 | **50ms上限の軽量スキャナ (`scanTJAInfo`)** による先行判定と、Parser内の **Timeout Protection** による多層防護。極端値の安全クランプ。 |
 | **Phase 2 検索API** | 「時刻 $t$ 秒にあるノーツ」「時刻 $t$ でのBPM」「小節 $k$ の開始時刻」を引くために全配列を都度走査する必要があった。 | 二分探索対応の `Timeline` クラスを提供。`getNotesInRange()`, `getMeasureAtTime()`, `getEventsAtTime()`, `getGogoStateAtTime()`, `timeToBeat()`, `beatToTime()` を $O(\log N)$ で提供。 |
@@ -101,8 +101,8 @@ interface NoteModel {
    - タイムアウト保護（デフォルト2500ms）で無限ループを完全防止。
 
 2. **`writer.ts`**:
-   - `ChartModel` から意味的に同一なTJAテキストを再生成。
-   - 各小節のノーツと連打の有理数位置から **最小公倍数 (LCM)** を算出し、最適な分割文字列表現（`10002000,` 等）を構築。
+   - `ChartModel` から意味的に同一なTJAテキストを再生成（Semantic Round-trip）。
+   - 各小節のノーツ・連打・風船・コマンドの有理数位置（`numerator / denominator` を一次情報として保持）から **最小公倍数 (LCM)** を算出し、浮動小数点ドリフトのない正確な分割文字列表現（`10002000,` 等）を構築。
    - 未知ヘッダー、`#SCROLL`、`#LYRIC`、表示制御を正確に保持。
 
 3. **`scanner.ts`**:

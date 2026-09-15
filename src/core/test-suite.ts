@@ -381,5 +381,234 @@ export function runAllCoreTests(): TestCaseResult[] {
     };
   });
 
+  // 18. Arbitrary Subdivisions (20, 24, 32, 48 divisions Semantic Round-trip)
+  test('test-subdivisions-roundtrip', 'Subdivisions Round-trip (20, 24, 32, 48 divisions)', 'grid', () => {
+    // 20-div: notes at index 0 and 1 (1/20)
+    const m20 = '11000000000000000000,';
+    // 24-div: notes at index 0 and 5 (5/24)
+    const m24 = '100002000000000000000000,';
+    // 32-div: notes at index 0 and 8 (8/32 = 1/4)
+    const m32 = '10000000200000000000000000000000,';
+    // 48-div: notes at index 0 and 7 (7/48)
+    const m48 = '100000020000000000000000000000000000000000000000,';
+
+    const tjaA = `TITLE:Subdivisions\nBPM:120\n#START\n${m20}\n${m24}\n${m32}\n${m48}\n#END`;
+    const modelA = parseTJA(tjaA);
+    const tjaB = writeTJA(modelA);
+    const modelB = parseTJA(tjaB);
+
+    const cA = modelA.activeCourse;
+    const cB = modelB.activeCourse;
+
+    const divisionsA = cA.measures.map(m => m.division);
+    const divisionsB = cB.measures.map(m => m.division);
+
+    const divisionsMatch = divisionsA[0] === 20 && divisionsA[1] === 24 && divisionsA[2] === 32 && divisionsA[3] === 48 &&
+      divisionsB[0] === 20 && divisionsB[1] === 24 && divisionsB[2] === 32 && divisionsB[3] === 48;
+
+    let notesMatch = cA.notes.length === cB.notes.length;
+    if (notesMatch) {
+      for (let i = 0; i < cA.notes.length; i++) {
+        const nA = cA.notes[i];
+        const nB = cB.notes[i];
+        if (
+          nA.type !== nB.type ||
+          nA.positionInMeasure.numerator !== nB.positionInMeasure.numerator ||
+          nA.positionInMeasure.denominator !== nB.positionInMeasure.denominator ||
+          !approxEqual(nA.time, nB.time) ||
+          !approxEqual(nA.beat, nB.beat)
+        ) {
+          notesMatch = false;
+          break;
+        }
+      }
+    }
+
+    const passed = divisionsMatch && notesMatch;
+    return {
+      passed,
+      message: passed ? 'All 20, 24, 32, and 48 division measures preserved exact rational positions and timings.' : 'Subdivision roundtrip mismatch.',
+      details: { divisionsA, divisionsB, notesMatch },
+    };
+  });
+
+  // 19. Multiple Denominators & Mixed Rational Positions (1/20, 5/24, 7/48)
+  test('test-mixed-rational-positions', 'Mixed Rational Positions Verification (1/20, 5/24, 7/48)', 'grid', () => {
+    // Measure 0 has 1/20, Measure 1 has 5/24, Measure 2 has 7/48
+    // Measure 3 has composite 48 division containing 7/48 and 10/48 (5/24)
+    const mComposite48 = '000000010020000000000000000000000000000000000000,';
+    const tja = `TITLE:Mixed Denominators\nBPM:120\n#START\n01000000000000000000,\n000002000000000000000000,\n000000010000000000000000000000000000000000000000,\n${mComposite48}\n#END`;
+
+    const modelA = parseTJA(tja);
+    const tjaOut = writeTJA(modelA);
+    const modelB = parseTJA(tjaOut);
+
+    const notesA = modelA.activeCourse.notes;
+    const notesB = modelB.activeCourse.notes;
+
+    // Check specific rational positions in Model A and Model B
+    // Note 0: numerator=1, denominator=20
+    const n0Match = notesA[0].positionInMeasure.numerator === 1 && notesA[0].positionInMeasure.denominator === 20 &&
+      notesB[0].positionInMeasure.numerator === 1 && notesB[0].positionInMeasure.denominator === 20;
+
+    // Note 1: numerator=5, denominator=24
+    const n1Match = notesA[1].positionInMeasure.numerator === 5 && notesA[1].positionInMeasure.denominator === 24 &&
+      notesB[1].positionInMeasure.numerator === 5 && notesB[1].positionInMeasure.denominator === 24;
+
+    // Note 2: numerator=7, denominator=48
+    const n2Match = notesA[2].positionInMeasure.numerator === 7 && notesA[2].positionInMeasure.denominator === 48 &&
+      notesB[2].positionInMeasure.numerator === 7 && notesB[2].positionInMeasure.denominator === 48;
+
+    // Note 3 (in m3): 7/48, Note 4 (in m3): 10/48 = 5/24
+    const n3Match = notesA[3].positionInMeasure.numerator === 7 && notesA[3].positionInMeasure.denominator === 48 &&
+      notesB[3].positionInMeasure.numerator === 7 && notesB[3].positionInMeasure.denominator === 48;
+    const n4Match = notesA[4].positionInMeasure.numerator === 5 && notesA[4].positionInMeasure.denominator === 24 &&
+      notesB[4].positionInMeasure.numerator === 5 && notesB[4].positionInMeasure.denominator === 24;
+
+    let allTimingsMatch = true;
+    for (let i = 0; i < notesA.length; i++) {
+      if (!approxEqual(notesA[i].time, notesB[i].time) || !approxEqual(notesA[i].beat, notesB[i].beat)) {
+        allTimingsMatch = false;
+        break;
+      }
+    }
+
+    const passed = n0Match && n1Match && n2Match && n3Match && n4Match && allTimingsMatch;
+    return {
+      passed,
+      message: passed ? 'Rational positions 1/20, 5/24, 7/48 preserved as primary truth through write/parse roundtrip.' : 'Mixed rational position mismatch.',
+      details: { n0Match, n1Match, n2Match, n3Match, n4Match, allTimingsMatch },
+    };
+  });
+
+  // 20. Comprehensive Semantic Round-trip Test (Notes, Measures, Rolls, Balloons, Gogo, Timing)
+  test('test-semantic-round-trip-comprehensive', 'Comprehensive Semantic Round-trip Verification', 'roundtrip', () => {
+    const tjaA = `TITLE:Complete Semantic Test
+SUBTITLE:--MikaNotes Test
+BPM:130
+WAVE:song.ogg
+OFFSET:-0.250
+COURSE:Oni
+LEVEL:10
+BALLOON:7,12
+
+#START
+#MEASURE 4/4
+#BPMCHANGE 130
+10201020,
+#MEASURE 3/4
+#BPMCHANGE 150
+#GOGOSTART
+500000800000,
+#GOGOEND
+#MEASURE 4/4
+7000000080000000,
+#BPMCHANGE 120
+000000010000000000000000000000000000000000000002,
+#END`;
+
+    const modelA = parseTJA(tjaA);
+    const tjaB = writeTJA(modelA);
+    const modelB = parseTJA(tjaB);
+
+    const cA = modelA.activeCourse;
+    const cB = modelB.activeCourse;
+
+    // 1. Note count and types
+    const noteCountMatch = cA.notes.length === cB.notes.length;
+    let notesDataMatch = noteCountMatch;
+    if (noteCountMatch) {
+      for (let i = 0; i < cA.notes.length; i++) {
+        const a = cA.notes[i];
+        const b = cB.notes[i];
+        if (
+          a.type !== b.type ||
+          a.positionInMeasure.numerator !== b.positionInMeasure.numerator ||
+          a.positionInMeasure.denominator !== b.positionInMeasure.denominator ||
+          !approxEqual(a.time, b.time) ||
+          !approxEqual(a.beat, b.beat) ||
+          !approxEqual(a.bpm, b.bpm)
+        ) {
+          notesDataMatch = false;
+          break;
+        }
+      }
+    }
+
+    // 2. Measure count and ratios
+    const measureCountMatch = cA.measures.length === cB.measures.length;
+    let measuresDataMatch = measureCountMatch;
+    if (measureCountMatch) {
+      for (let i = 0; i < cA.measures.length; i++) {
+        const ma = cA.measures[i];
+        const mb = cB.measures[i];
+        if (
+          ma.numerator !== mb.numerator ||
+          ma.denominator !== mb.denominator ||
+          ma.division !== mb.division ||
+          !approxEqual(ma.startTime, mb.startTime) ||
+          !approxEqual(ma.duration, mb.duration)
+        ) {
+          measuresDataMatch = false;
+          break;
+        }
+      }
+    }
+
+    // 3. Rolls and Balloons
+    const rollsMatch = cA.rolls.length === cB.rolls.length &&
+      cA.rolls.every((rA, i) => {
+        const rB = cB.rolls[i];
+        return rA.rawType === rB.rawType &&
+          rA.startMeasureIndex === rB.startMeasureIndex &&
+          rA.endMeasureIndex === rB.endMeasureIndex &&
+          rA.startPosition.numerator === rB.startPosition.numerator &&
+          rA.startPosition.denominator === rB.startPosition.denominator &&
+          rA.endPosition.numerator === rB.endPosition.numerator &&
+          rA.endPosition.denominator === rB.endPosition.denominator &&
+          approxEqual(rA.startTime, rB.startTime) &&
+          approxEqual(rA.endTime, rB.endTime);
+      });
+
+    const balloonsMatch = cA.balloons.length === cB.balloons.length &&
+      cA.balloons.every((bA, i) => {
+        const bB = cB.balloons[i];
+        return bA.hitCount === bB.hitCount &&
+          bA.startMeasureIndex === bB.startMeasureIndex &&
+          bA.endMeasureIndex === bB.endMeasureIndex &&
+          bA.startPosition.numerator === bB.startPosition.numerator &&
+          bA.startPosition.denominator === bB.startPosition.denominator &&
+          bA.endPosition.numerator === bB.endPosition.numerator &&
+          bA.endPosition.denominator === bB.endPosition.denominator &&
+          approxEqual(bA.startTime, bB.startTime) &&
+          approxEqual(bA.endTime, bB.endTime);
+      });
+
+    // 4. Gogo ranges
+    const gogoMatch = cA.gogoRanges.length === cB.gogoRanges.length &&
+      cA.gogoRanges.every((gA, i) => {
+        const gB = cB.gogoRanges[i];
+        return approxEqual(gA.startTime, gB.startTime) &&
+          approxEqual(gA.endTime, gB.endTime) &&
+          approxEqual(gA.startBeat, gB.startBeat) &&
+          approxEqual(gA.endBeat, gB.endBeat);
+      });
+
+    const passed = notesDataMatch && measuresDataMatch && rollsMatch && balloonsMatch && gogoMatch;
+
+    return {
+      passed,
+      message: passed ? 'Comprehensive Semantic Round-trip passed: notes, measures, divisions, rationals, beat, time, bpm, gogo, rolls, balloons all match.' : 'Semantic Round-trip discrepancy detected.',
+      details: {
+        noteCount: `${cA.notes.length} vs ${cB.notes.length}`,
+        notesDataMatch,
+        measuresDataMatch,
+        rollsMatch,
+        balloonsMatch,
+        gogoMatch,
+      },
+    };
+  });
+
   return results;
 }
