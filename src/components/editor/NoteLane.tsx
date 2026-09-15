@@ -14,6 +14,8 @@ interface NoteLaneProps {
   layout: TimelineLayout;
   selectedGrid: GridDivision;
   onTapLane: (x: number) => void;
+  visibleStartX?: number;
+  visibleEndX?: number;
 }
 
 export const NoteLane: React.FC<NoteLaneProps> = ({
@@ -21,6 +23,8 @@ export const NoteLane: React.FC<NoteLaneProps> = ({
   layout,
   selectedGrid,
   onTapLane,
+  visibleStartX,
+  visibleEndX,
 }) => {
   const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -29,6 +33,15 @@ export const NoteLane: React.FC<NoteLaneProps> = ({
   };
 
   const effectiveDiv = typeof selectedGrid === 'number' ? selectedGrid : 16;
+
+  // Virtualization bounds (default to full width if not provided)
+  const minVisibleX = visibleStartX ?? 0;
+  const maxVisibleX = visibleEndX ?? layout.totalWidth;
+
+  // Filter visible measures within viewport bounds (+ safety margins)
+  const visibleMeasures = layout.measures.filter(
+    (m) => m.endX >= minVisibleX && m.startX <= maxVisibleX
+  );
 
   return (
     <div
@@ -40,12 +53,12 @@ export const NoteLane: React.FC<NoteLaneProps> = ({
       {/* Center horizontal guideline */}
       <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-[1px] bg-slate-700/30 pointer-events-none" />
 
-      {/* Grid lines (Measure boundaries, beat lines, and subdivision lines) */}
+      {/* Grid lines (Measure boundaries, beat lines, and subdivision lines for visible measures only) */}
       <svg
         className="absolute inset-0 w-full h-full pointer-events-none"
         style={{ width: `${layout.totalWidth}px`, height: '100%' }}
       >
-        {layout.measures.map((m) => {
+        {visibleMeasures.map((m) => {
           const lines = [];
 
           // 1. Measure boundary line (thick)
@@ -87,7 +100,7 @@ export const NoteLane: React.FC<NoteLaneProps> = ({
           return lines;
         })}
 
-        {/* Render Rolls and Big Rolls as horizontal capsules / bands */}
+        {/* Render Rolls and Big Rolls as horizontal capsules / bands (visible only) */}
         {course.rolls.map((roll, rIdx) => {
           const startMLayout = layout.measures[roll.startMeasureIndex];
           const endMLayout = layout.measures[roll.endMeasureIndex];
@@ -95,6 +108,8 @@ export const NoteLane: React.FC<NoteLaneProps> = ({
 
           const startX = getNoteX(roll.startPosition, startMLayout);
           const endX = getNoteX(roll.endPosition, endMLayout);
+          if (endX < minVisibleX || startX > maxVisibleX) return null;
+
           const width = Math.max(16, endX - startX);
           const isBig = roll.rawType === '6';
           const height = isBig ? 42 : 32;
@@ -118,7 +133,7 @@ export const NoteLane: React.FC<NoteLaneProps> = ({
           );
         })}
 
-        {/* Render Balloons */}
+        {/* Render Balloons (visible only) */}
         {course.balloons.map((balloon, bIdx) => {
           const startMLayout = layout.measures[balloon.startMeasureIndex];
           const endMLayout = layout.measures[balloon.endMeasureIndex];
@@ -126,6 +141,8 @@ export const NoteLane: React.FC<NoteLaneProps> = ({
 
           const startX = getNoteX(balloon.startPosition, startMLayout);
           const endX = getNoteX(balloon.endPosition, endMLayout);
+          if (endX < minVisibleX || startX > maxVisibleX) return null;
+
           const width = Math.max(16, endX - startX);
           const height = 30;
           const y = 56 - height / 2;
@@ -148,10 +165,12 @@ export const NoteLane: React.FC<NoteLaneProps> = ({
         })}
       </svg>
 
-      {/* Render Individual Notes matching reference image precisely */}
-      {layout.measures.map((mLayout) => {
+      {/* Render Individual Notes matching reference image precisely (visible measures only) */}
+      {visibleMeasures.map((mLayout) => {
         return mLayout.measure.notes.map((note, nIdx) => {
           const noteX = getNoteX(note.positionInMeasure, mLayout);
+          if (noteX < minVisibleX - 40 || noteX > maxVisibleX + 40) return null;
+
           const centerY = 56; // Half of 112px (h-28)
 
           // Distinguish note graphics:
@@ -206,8 +225,8 @@ export const NoteLane: React.FC<NoteLaneProps> = ({
         });
       })}
 
-      {/* Hexagonal End Markers (Note 8: roll/balloon end) as seen in reference image */}
-      {layout.measures.map((mLayout) => {
+      {/* Hexagonal End Markers (Note 8: roll/balloon end) as seen in reference image (visible measures only) */}
+      {visibleMeasures.map((mLayout) => {
         // Find if any events or roll ends exist in this measure
         const rollEndsInMeasure = course.rolls.filter(
           (r) => r.endMeasureIndex === mLayout.index
@@ -218,6 +237,8 @@ export const NoteLane: React.FC<NoteLaneProps> = ({
 
         return [...rollEndsInMeasure, ...balloonEndsInMeasure].map((item, idx) => {
           const endX = getNoteX(item.endPosition, mLayout);
+          if (endX < minVisibleX - 30 || endX > maxVisibleX + 30) return null;
+
           const centerY = 56;
           const hexSize = 14;
 

@@ -76,6 +76,16 @@ export const EditorShell: React.FC<EditorShellProps> = ({
         customGridDiv={editor.customGridDiv}
         onSelectGrid={editor.setSelectedGrid}
         onChangeCustomGrid={editor.setCustomGridDiv}
+        gogoMode={editor.gogoMode}
+        onChangeGogoMode={editor.setGogoMode}
+        onAddGogo={() => editor.insertGogoDirect('GOGOSTART')}
+        onRemoveGogo={() => editor.insertGogoDirect('GOGOEND')}
+        bpmInput={editor.bpmInput}
+        onChangeBpm={editor.setBpmInput}
+        onSetBpm={editor.insertBpmDirect}
+        measureInput={editor.measureInput}
+        onChangeMeasure={editor.setMeasureInput}
+        onSetMeasure={editor.insertMeasureDirect}
       />
 
       {/* 4. Menu / Import / Export / Workbench Switcher Modal */}

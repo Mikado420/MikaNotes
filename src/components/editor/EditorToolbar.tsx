@@ -25,6 +25,16 @@ interface EditorToolbarProps {
   customGridDiv: number;
   onSelectGrid: (grid: GridDivision) => void;
   onChangeCustomGrid: (val: number) => void;
+  gogoMode?: 'GOGOSTART' | 'GOGOEND';
+  onChangeGogoMode?: (mode: 'GOGOSTART' | 'GOGOEND') => void;
+  onAddGogo?: () => void;
+  onRemoveGogo?: () => void;
+  bpmInput?: number;
+  onChangeBpm?: (bpm: number) => void;
+  onSetBpm?: (bpm: number) => void;
+  measureInput?: string;
+  onChangeMeasure?: (sig: string) => void;
+  onSetMeasure?: (num: number, den: number) => void;
 }
 
 export const EditorToolbar: React.FC<EditorToolbarProps> = ({
@@ -36,6 +46,16 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
   customGridDiv,
   onSelectGrid,
   onChangeCustomGrid,
+  gogoMode,
+  onChangeGogoMode,
+  onAddGogo,
+  onRemoveGogo,
+  bpmInput,
+  onChangeBpm,
+  onSetBpm,
+  measureInput,
+  onChangeMeasure,
+  onSetMeasure,
 }) => {
   return (
     <div
@@ -116,9 +136,30 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
             />
           )}
 
-          {selectedTab === 'gogo' && <GogoToolPanel />}
-          {selectedTab === 'bpm' && <BpmToolPanel />}
-          {selectedTab === 'measure' && <MeasureToolPanel />}
+          {selectedTab === 'gogo' && (
+            <GogoToolPanel
+              gogoMode={gogoMode}
+              onChangeGogoMode={onChangeGogoMode}
+              onAddGogo={onAddGogo}
+              onRemoveGogo={onRemoveGogo}
+            />
+          )}
+
+          {selectedTab === 'bpm' && (
+            <BpmToolPanel
+              currentBpm={bpmInput}
+              onChangeBpm={onChangeBpm}
+              onSetBpm={onSetBpm}
+            />
+          )}
+
+          {selectedTab === 'measure' && (
+            <MeasureToolPanel
+              currentSig={measureInput}
+              onChangeSig={onChangeMeasure}
+              onSetTimeSignature={onSetMeasure}
+            />
+          )}
         </div>
 
         {/* Right: Grid Selector Area */}

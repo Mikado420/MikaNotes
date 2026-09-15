@@ -3,7 +3,7 @@
  * Phase 1 / Phase 2 query API for time, beats, measures, notes, and events
  */
 
-import { CourseModel, MeasureModel, NoteModel, RollModel, BalloonModel, CommandModel } from './types';
+import { CourseModel, MeasureModel, NoteModel, RollModel, BalloonModel, CommandModel, RationalPosition } from './types';
 import { approxEqual, EPSILON } from './math';
 
 export class Timeline {
@@ -206,9 +206,9 @@ export class Timeline {
   public timeToBeat(time: number): number {
     const measure = this.getMeasureAtTime(time);
     if (!measure) return 0;
-    const progress = measure.duration > 0 ? (time - measure.startTime) / measure.duration : 0;
+    const pos = this.timeToPosition(measure, time);
     const beatsInMeasure = (measure.numerator / measure.denominator) * 4;
-    return measure.startBeat + progress * beatsInMeasure;
+    return measure.startBeat + pos.fraction * beatsInMeasure;
   }
 
   /**
@@ -219,7 +219,13 @@ export class Timeline {
       if (beat >= m.startBeat - EPSILON && beat <= m.endBeat + EPSILON) {
         const beatsInMeasure = (m.numerator / m.denominator) * 4;
         const progress = beatsInMeasure > 0 ? (beat - m.startBeat) / beatsInMeasure : 0;
-        return m.startTime + progress * m.duration;
+        const clampedFrac = Math.max(0, Math.min(1, progress));
+        const rational: RationalPosition = {
+          numerator: Math.round(clampedFrac * 1920),
+          denominator: 1920,
+          fraction: clampedFrac,
+        };
+        return this.positionToTime(m, rational);
       }
     }
     // Fallback: estimate from last measure or 120 bpm
@@ -230,5 +236,248 @@ export class Timeline {
       return last.endTime + (extraBeats / bpm) * 60;
     }
     return (beat / 120) * 60;
+  }
+
+  /**
+   * Convert a RationalPosition within a measure to exact chart time (seconds),
+   * correctly handling any #BPMCHANGE and #DELAY within the measure.
+   */
+  public positionToTime(measure: MeasureModel, position: RationalPosition): number {
+    const targetFrac = position.denominator > 0
+      ? position.numerator / position.denominator
+      : (typeof position.fraction === 'number' ? position.fraction : 0);
+
+    if (targetFrac <= EPSILON) {
+      return measure.startTime;
+    }
+
+    const measureBeats = (measure.numerator * 4) / measure.denominator;
+
+    // Collect all critical event points within this measure
+    const segments = this.buildMeasureTimingSegments(measure);
+
+    let accTime = 0;
+    let prevFrac = 0;
+    let currentBpm = segments.initialBpm;
+
+    // If there is an initial DELAY at pos = 0
+    const delayAtZero = segments.delays.get(0) || 0;
+    accTime += delayAtZero;
+
+    for (let i = 0; i < segments.points.length; i++) {
+      const p = segments.points[i];
+      if (p <= EPSILON) continue;
+
+      if (targetFrac < p - EPSILON) {
+        // Target is strictly between prevFrac and p
+        const segFrac = targetFrac - prevFrac;
+        const segBeats = segFrac * measureBeats;
+        const segTime = currentBpm > 0 ? (segBeats / currentBpm) * 60 : 0;
+        accTime += segTime;
+        break;
+      }
+
+      // Progress through the full interval [prevFrac, p]
+      const segFrac = p - prevFrac;
+      const segBeats = segFrac * measureBeats;
+      const segTime = currentBpm > 0 ? (segBeats / currentBpm) * 60 : 0;
+      accTime += segTime;
+
+      // When reaching point p:
+      // 1. Add any DELAY occurring at point p
+      const delayAtP = segments.delays.get(p) || 0;
+      accTime += delayAtP;
+
+      // 2. Update BPM if a BPMCHANGE occurs at point p
+      if (segments.bpms.has(p)) {
+        currentBpm = segments.bpms.get(p)!;
+      }
+
+      prevFrac = p;
+
+      if (Math.abs(targetFrac - p) <= EPSILON) {
+        break;
+      }
+    }
+
+    return measure.startTime + accTime;
+  }
+
+  /**
+   * Convert an exact chart time (seconds) to a RationalPosition within a measure,
+   * correctly handling any #BPMCHANGE and #DELAY.
+   */
+  public timeToPosition(measure: MeasureModel, time: number): RationalPosition {
+    if (time <= measure.startTime + EPSILON) {
+      return { numerator: 0, denominator: 1, fraction: 0 };
+    }
+    if (time >= measure.endTime - EPSILON) {
+      return { numerator: 1, denominator: 1, fraction: 1 };
+    }
+
+    const measureBeats = (measure.numerator * 4) / measure.denominator;
+    const segments = this.buildMeasureTimingSegments(measure);
+
+    let currTime = measure.startTime;
+    let prevFrac = 0;
+    let currentBpm = segments.initialBpm;
+
+    // Check delay at position 0
+    const delayAtZero = segments.delays.get(0) || 0;
+    if (delayAtZero > 0 && time < currTime + delayAtZero) {
+      return { numerator: 0, denominator: 1, fraction: 0 };
+    }
+    currTime += delayAtZero;
+
+    for (let i = 0; i < segments.points.length; i++) {
+      const p = segments.points[i];
+      if (p <= EPSILON) continue;
+
+      const segFrac = p - prevFrac;
+      const segBeats = segFrac * measureBeats;
+      const segTime = currentBpm > 0 ? (segBeats / currentBpm) * 60 : 0;
+
+      if (time <= currTime + segTime + EPSILON) {
+        // Target is inside [prevFrac, p]
+        const dt = Math.max(0, time - currTime);
+        const dBeats = (dt / 60) * currentBpm;
+        const dFrac = measureBeats > 0 ? dBeats / measureBeats : 0;
+        const frac = Math.max(0, Math.min(1, prevFrac + dFrac));
+        return this.fractionToRational(measure, frac);
+      }
+
+      currTime += segTime;
+
+      // Check DELAY at point p
+      const delayAtP = segments.delays.get(p) || 0;
+      if (delayAtP > 0) {
+        if (time < currTime + delayAtP) {
+          // Inside delay at point p
+          return this.fractionToRational(measure, p);
+        }
+        currTime += delayAtP;
+      }
+
+      if (segments.bpms.has(p)) {
+        currentBpm = segments.bpms.get(p)!;
+      }
+
+      prevFrac = p;
+    }
+
+    return { numerator: 1, denominator: 1, fraction: 1 };
+  }
+
+  /**
+   * Helper: Build timing segments (BPMCHANGE and DELAY points) within a measure
+   */
+  private buildMeasureTimingSegments(measure: MeasureModel): {
+    points: number[];
+    initialBpm: number;
+    bpms: Map<number, number>;
+    delays: Map<number, number>;
+  } {
+    // Determine initial BPM of the measure
+    let initialBpm = this.course.headers.bpm || 120;
+    const priorEvents = this.sortedEvents.filter(
+      (e) => e.name === 'BPMCHANGE' && e.time <= measure.startTime + EPSILON
+    );
+    if (priorEvents.length > 0) {
+      const lastVal = parseFloat(priorEvents[priorEvents.length - 1].value);
+      if (!isNaN(lastVal) && lastVal > 0) initialBpm = lastVal;
+    }
+
+    const bpms = new Map<number, number>();
+    const delays = new Map<number, number>();
+    const rawPoints = new Set<number>([0, 1]);
+
+    for (const ev of measure.events) {
+      const frac = ev.positionInMeasure.denominator > 0
+        ? ev.positionInMeasure.numerator / ev.positionInMeasure.denominator
+        : (ev.positionInMeasure.fraction ?? 0);
+      const roundedFrac = Math.round(frac * 100000) / 100000;
+
+      if (ev.name === 'BPMCHANGE') {
+        const val = parseFloat(ev.value);
+        if (!isNaN(val) && val > 0) {
+          if (roundedFrac === 0) {
+            initialBpm = val;
+          } else {
+            bpms.set(roundedFrac, val);
+            rawPoints.add(roundedFrac);
+          }
+        }
+      } else if (ev.name === 'DELAY') {
+        const d = parseFloat(ev.value);
+        if (!isNaN(d) && d > 0) {
+          delays.set(roundedFrac, (delays.get(roundedFrac) || 0) + d);
+          rawPoints.add(roundedFrac);
+        }
+      }
+    }
+
+    const sortedPoints = Array.from(rawPoints).sort((a, b) => a - b);
+
+    return {
+      points: sortedPoints,
+      initialBpm,
+      bpms,
+      delays,
+    };
+  }
+
+  /**
+   * Helper: Convert a float fraction in a measure to a high-precision RationalPosition,
+   * preferring matching notes/events or clean fractions.
+   */
+  private fractionToRational(measure: MeasureModel, fraction: number): RationalPosition {
+    // 1. Check if matches any existing note in this measure
+    for (const note of measure.notes) {
+      const nFrac = note.positionInMeasure.denominator > 0
+        ? note.positionInMeasure.numerator / note.positionInMeasure.denominator
+        : note.positionInMeasure.fraction;
+      if (Math.abs(nFrac - fraction) < 0.0001) {
+        return {
+          numerator: note.positionInMeasure.numerator,
+          denominator: note.positionInMeasure.denominator,
+          fraction: note.positionInMeasure.fraction,
+        };
+      }
+    }
+
+    // 2. Check if matches any existing event in this measure
+    for (const ev of measure.events) {
+      const eFrac = ev.positionInMeasure.denominator > 0
+        ? ev.positionInMeasure.numerator / ev.positionInMeasure.denominator
+        : ev.positionInMeasure.fraction;
+      if (Math.abs(eFrac - fraction) < 0.0001) {
+        return {
+          numerator: ev.positionInMeasure.numerator,
+          denominator: ev.positionInMeasure.denominator,
+          fraction: ev.positionInMeasure.fraction,
+        };
+      }
+    }
+
+    // 3. Round to standard 1920 resolution
+    const highRes = 1920;
+    const step = Math.round(fraction * highRes);
+    const clampedStep = Math.max(0, Math.min(highRes, step));
+
+    // Calculate gcd to simplify
+    let a = clampedStep;
+    let b = highRes;
+    while (b !== 0) {
+      const t = b;
+      b = a % b;
+      a = t;
+    }
+    const g = a > 0 ? a : 1;
+
+    return {
+      numerator: clampedStep / g,
+      denominator: highRes / g,
+      fraction: clampedStep / highRes,
+    };
   }
 }

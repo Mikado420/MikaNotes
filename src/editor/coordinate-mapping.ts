@@ -66,7 +66,7 @@ export function timeToTimelineX(
 ): number {
   if (layout.measures.length === 0) return LANE_PADDING_LEFT;
 
-  // Find measure at time using binary search
+  // Find measure at time using Timeline's binary search
   const m = timeline.getMeasureAtTime(time);
   if (!m) {
     if (time <= 0) return layout.measures[0]?.startX ?? LANE_PADDING_LEFT;
@@ -77,8 +77,9 @@ export function timeToTimelineX(
   const mLayout = layout.measures[m.index];
   if (!mLayout) return LANE_PADDING_LEFT;
 
-  // Calculate linear progress within the measure
-  const progress = m.duration > 0 ? (time - m.startTime) / m.duration : 0;
+  // Accurately convert chart time to RationalPosition using Timeline
+  const pos = timeline.timeToPosition(m, time);
+  const progress = pos.denominator > 0 ? pos.numerator / pos.denominator : (pos.fraction ?? 0);
   const clampedProgress = Math.max(0, Math.min(1, progress));
 
   return mLayout.startX + clampedProgress * mLayout.width;
@@ -89,6 +90,7 @@ export function timeToTimelineX(
  */
 export function timelineXToTime(
   x: number,
+  timeline: Timeline,
   layout: TimelineLayout
 ): number {
   if (layout.measures.length === 0) return 0;
@@ -102,8 +104,20 @@ export function timelineXToTime(
   // Find which measure contains this X
   for (const mLayout of layout.measures) {
     if (x >= mLayout.startX && x < mLayout.endX) {
-      const progress = (x - mLayout.startX) / mLayout.width;
-      return mLayout.startTime + progress * mLayout.duration;
+      const rawProgress = (x - mLayout.startX) / mLayout.width;
+      const clampedProgress = Math.max(0, Math.min(1, rawProgress));
+
+      // Construct RationalPosition for high precision
+      const highRes = 1920;
+      const step = Math.round(clampedProgress * highRes);
+      const g = gcd(step, highRes);
+      const rational: RationalPosition = {
+        numerator: step / g,
+        denominator: highRes / g,
+        fraction: clampedProgress,
+      };
+
+      return timeline.positionToTime(mLayout.measure, rational);
     }
   }
 
@@ -115,6 +129,7 @@ export function timelineXToTime(
  */
 export function snapTimelineXToGrid(
   x: number,
+  timeline: Timeline,
   layout: TimelineLayout,
   gridDivision: number | 'free'
 ): {
@@ -151,7 +166,7 @@ export function snapTimelineXToGrid(
   let fraction = 0;
 
   if (gridDivision === 'free') {
-    // In free mode, use a high-resolution grid (e.g. 1920 = LCM(64, 48, 20...))
+    // In free mode, use a high-resolution grid (1920 = LCM(64, 48, 20...))
     const highRes = 1920;
     const step = Math.round(rawProgress * highRes);
     const clampedStep = Math.min(highRes - 1, Math.max(0, step));
@@ -177,7 +192,9 @@ export function snapTimelineXToGrid(
 
   const snappedProgress = rational.fraction;
   const snappedX = targetLayout.startX + snappedProgress * targetLayout.width;
-  const time = targetLayout.startTime + snappedProgress * targetLayout.duration;
+
+  // Accurately compute chart time using Timeline.positionToTime
+  const time = timeline.positionToTime(targetLayout.measure, rational);
 
   return {
     measure: targetLayout.measure,

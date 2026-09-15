@@ -6,87 +6,121 @@
 import React, { useState } from 'react';
 
 interface GogoToolPanelProps {
+  gogoMode?: 'GOGOSTART' | 'GOGOEND';
+  onChangeGogoMode?: (mode: 'GOGOSTART' | 'GOGOEND') => void;
   onAddGogo?: () => void;
   onRemoveGogo?: () => void;
 }
 
 export const GogoToolPanel: React.FC<GogoToolPanelProps> = ({
+  gogoMode = 'GOGOSTART',
+  onChangeGogoMode,
   onAddGogo,
   onRemoveGogo,
 }) => {
   return (
     <div className="flex items-center gap-2 h-14">
       <button
-        onClick={onAddGogo}
-        className="px-3 py-2 bg-amber-950/40 border border-amber-500/60 rounded-lg text-amber-300 text-xs font-medium hover:bg-amber-900/40 flex items-center gap-1.5"
+        onClick={() => {
+          onChangeGogoMode?.('GOGOSTART');
+          onAddGogo?.();
+        }}
+        className={`px-3 py-2 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all ${
+          gogoMode === 'GOGOSTART'
+            ? 'bg-amber-600 text-white font-semibold ring-1 ring-amber-400 shadow-sm'
+            : 'bg-amber-950/40 border border-amber-500/60 text-amber-300 hover:bg-amber-900/40'
+        }`}
       >
         <span>👑</span>
         <span>GOGO区間を開始 (#GOGOSTART)</span>
       </button>
       <button
-        onClick={onRemoveGogo}
-        className="px-3 py-2 bg-slate-800/80 border border-slate-700 rounded-lg text-slate-300 text-xs font-medium hover:bg-slate-700/80 flex items-center gap-1.5"
+        onClick={() => {
+          onChangeGogoMode?.('GOGOEND');
+          onRemoveGogo?.();
+        }}
+        className={`px-3 py-2 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all ${
+          gogoMode === 'GOGOEND'
+            ? 'bg-slate-600 text-white font-semibold ring-1 ring-slate-400 shadow-sm'
+            : 'bg-slate-800/80 border border-slate-700 text-slate-300 hover:bg-slate-700/80'
+        }`}
       >
         <span>GOGO区間を終了 (#GOGOEND)</span>
       </button>
+      <span className="text-[11px] text-slate-400 pl-2">
+        ※タイムラインタップで選択位置に挿入
+      </span>
     </div>
   );
 };
 
 interface BpmToolPanelProps {
   currentBpm?: number;
+  onChangeBpm?: (bpm: number) => void;
   onSetBpm?: (bpm: number) => void;
 }
 
 export const BpmToolPanel: React.FC<BpmToolPanelProps> = ({
   currentBpm = 120,
+  onChangeBpm,
   onSetBpm,
 }) => {
-  const [bpmVal, setBpmVal] = useState(currentBpm.toString());
-
   return (
     <div className="flex items-center gap-2 h-14">
-      <span className="text-xs text-slate-400">テンポ設定:</span>
+      <span className="text-xs text-slate-400">設定BPM:</span>
       <input
         type="number"
-        value={bpmVal}
-        onChange={(e) => setBpmVal(e.target.value)}
-        className="w-20 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-sm font-mono text-white text-center"
+        value={currentBpm}
+        onChange={(e) => {
+          const v = parseFloat(e.target.value);
+          if (!isNaN(v)) {
+            onChangeBpm?.(v);
+          }
+        }}
+        className="w-20 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-sm font-mono text-white text-center focus:border-sky-500 focus:outline-none"
       />
       <button
         onClick={() => {
-          const v = parseFloat(bpmVal);
-          if (!isNaN(v) && v > 0) onSetBpm?.(v);
+          if (currentBpm > 0 && isFinite(currentBpm)) onSetBpm?.(currentBpm);
         }}
-        className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium rounded-lg"
+        className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium rounded-lg shadow-sm"
       >
-        BPM変更を挿入
+        再生ヘッド位置に挿入
       </button>
       <div className="flex items-center gap-1 pl-2">
         {[120, 140, 160, 180, 200].map((b) => (
           <button
             key={b}
             onClick={() => {
-              setBpmVal(b.toString());
+              onChangeBpm?.(b);
               onSetBpm?.(b);
             }}
-            className="px-2 py-1 bg-slate-800 hover:bg-slate-750 text-slate-300 text-xs font-mono rounded"
+            className={`px-2 py-1 text-xs font-mono rounded transition-colors ${
+              currentBpm === b
+                ? 'bg-sky-600 text-white font-semibold'
+                : 'bg-slate-800 hover:bg-slate-750 text-slate-300'
+            }`}
           >
             {b}
           </button>
         ))}
       </div>
+      <span className="text-[11px] text-slate-400 pl-2">
+        ※タイムラインタップで指定位置に挿入
+      </span>
     </div>
   );
 };
 
 interface MeasureToolPanelProps {
   currentSig?: string;
+  onChangeSig?: (sig: string) => void;
   onSetTimeSignature?: (num: number, den: number) => void;
 }
 
 export const MeasureToolPanel: React.FC<MeasureToolPanelProps> = ({
   currentSig = '4/4',
+  onChangeSig,
   onSetTimeSignature,
 }) => {
   return (
@@ -100,10 +134,13 @@ export const MeasureToolPanel: React.FC<MeasureToolPanelProps> = ({
           return (
             <button
               key={sig}
-              onClick={() => onSetTimeSignature?.(n, d)}
+              onClick={() => {
+                onChangeSig?.(sig);
+                onSetTimeSignature?.(n, d);
+              }}
               className={`px-2.5 py-1.5 text-xs font-mono rounded-lg border transition-colors ${
                 isSelected
-                  ? 'bg-blue-600 text-white border-blue-500 font-semibold'
+                  ? 'bg-emerald-600 text-white border-emerald-500 font-semibold shadow-sm'
                   : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-750'
               }`}
             >
@@ -112,6 +149,9 @@ export const MeasureToolPanel: React.FC<MeasureToolPanelProps> = ({
           );
         })}
       </div>
+      <span className="text-[11px] text-slate-400 pl-2">
+        ※タイムラインタップで小節に適用
+      </span>
     </div>
   );
 };

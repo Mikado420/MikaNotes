@@ -5,6 +5,7 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import {
   ChartModel,
+  CommandModel,
   CourseModel,
   MeasureModel,
   NoteModel,
@@ -52,6 +53,11 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
   const [selectedGrid, setSelectedGrid] = useState<GridDivision>(16); // Default 16
   const [customGridDiv, setCustomGridDiv] = useState<number>(16);
   const [selectedMeasureForEdit, setSelectedMeasureForEdit] = useState<number | null>(null);
+
+  // Auxiliary tool parameters for GOGO, BPM, and MEASURE
+  const [gogoMode, setGogoMode] = useState<'GOGOSTART' | 'GOGOEND'>('GOGOSTART');
+  const [bpmInput, setBpmInput] = useState<number>(120);
+  const [measureInput, setMeasureInput] = useState<string>('4/4');
 
   // Active course reference
   const activeCourse: CourseModel = useMemo(() => {
@@ -138,16 +144,25 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
     };
   }, [isPlaying, totalDuration, stopPlayback]);
 
-  // Commit changes to history
+  // Commit changes to history with Core re-parsing to guarantee unified timing & events
   const pushHistory = useCallback((newChart: ChartModel) => {
-    const serialized = writeTJA(newChart);
-    const newHistory = historyRef.current.slice(0, historyIndexRef.current + 1);
-    newHistory.push(serialized);
-    if (newHistory.length > 50) newHistory.shift(); // Bound history size
-    historyRef.current = newHistory;
-    historyIndexRef.current = newHistory.length - 1;
-    setChart(newChart);
-    setHistoryVersion((v) => v + 1);
+    try {
+      const serialized = writeTJA(newChart);
+      const newHistory = historyRef.current.slice(0, historyIndexRef.current + 1);
+      newHistory.push(serialized);
+      if (newHistory.length > 50) newHistory.shift(); // Bound history size
+      historyRef.current = newHistory;
+      historyIndexRef.current = newHistory.length - 1;
+
+      // Re-parse with TJA Core to guarantee all measures, events, notes, and timelines are fully unified
+      const recalculated = parseTJA(serialized);
+      setChart(recalculated);
+      setHistoryVersion((v) => v + 1);
+    } catch (e) {
+      console.error('Failed to push history:', e);
+      setChart(newChart);
+      setHistoryVersion((v) => v + 1);
+    }
   }, []);
 
   const canUndo = historyIndexRef.current > 0;
@@ -179,6 +194,110 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
     }
   }, [canRedo]);
 
+  // Common command insertion (GOGO, BPM, MEASURE, etc.) using RationalPosition
+  const insertCommandAtPosition = useCallback(
+    (
+      commandName: string,
+      value: string,
+      measureIndex: number,
+      rational: RationalPosition,
+      time: number
+    ) => {
+      const currentCourse = chart.courses[activeCourseIndex] || chart.activeCourse;
+      if (!currentCourse || !currentCourse.measures[measureIndex]) return;
+
+      const trimmedVal = value.trim();
+      const raw = trimmedVal ? `#${commandName} ${trimmedVal}` : `#${commandName}`;
+
+      const maxSourceOrder = currentCourse.events.reduce(
+        (max, e) => Math.max(max, e.sourceOrder || 0),
+        0
+      );
+      const newSourceOrder = maxSourceOrder + 1;
+
+      const targetMeasure = currentCourse.measures[measureIndex];
+      const measureBeats = (targetMeasure.numerator * 4) / targetMeasure.denominator;
+      const beat = targetMeasure.startBeat + rational.fraction * measureBeats;
+
+      const newCommand: CommandModel = {
+        id: `cmd-${commandName.toLowerCase()}-${measureIndex}-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        name: commandName,
+        value: trimmedVal,
+        raw,
+        time,
+        audioTime: time - (chart.headers.offset || 0),
+        beat,
+        measureIndex,
+        positionInMeasure: rational,
+        sourceOrder: newSourceOrder,
+        isSemantic: true,
+      };
+
+      // For BPMCHANGE and MEASURE, if an identical command exists at this exact rational position, replace it
+      const isSinglePerPos = commandName === 'BPMCHANGE' || commandName === 'MEASURE';
+
+      const updatedMeasures = currentCourse.measures.map((m, idx) => {
+        if (idx !== measureIndex) return m;
+
+        let newEvents = [...m.events];
+        if (isSinglePerPos) {
+          newEvents = newEvents.filter(
+            (e) =>
+              !(
+                e.name === commandName &&
+                e.positionInMeasure.numerator === rational.numerator &&
+                e.positionInMeasure.denominator === rational.denominator
+              )
+          );
+        }
+        newEvents.push(newCommand);
+        newEvents.sort(
+          (a, b) =>
+            a.positionInMeasure.fraction - b.positionInMeasure.fraction ||
+            a.sourceOrder - b.sourceOrder
+        );
+
+        return {
+          ...m,
+          events: newEvents,
+        };
+      });
+
+      let updatedCourseEvents = [...currentCourse.events];
+      if (isSinglePerPos) {
+        updatedCourseEvents = updatedCourseEvents.filter(
+          (e) =>
+            !(
+              e.measureIndex === measureIndex &&
+              e.name === commandName &&
+              e.positionInMeasure.numerator === rational.numerator &&
+              e.positionInMeasure.denominator === rational.denominator
+            )
+        );
+      }
+      updatedCourseEvents.push(newCommand);
+      updatedCourseEvents.sort((a, b) => a.time - b.time || a.sourceOrder - b.sourceOrder);
+
+      const updatedCourse: CourseModel = {
+        ...currentCourse,
+        measures: updatedMeasures,
+        events: updatedCourseEvents,
+      };
+
+      const updatedCourses = [...chart.courses];
+      updatedCourses[activeCourseIndex] = updatedCourse;
+
+      const newChart: ChartModel = {
+        ...chart,
+        courses: updatedCourses,
+        activeCourse: updatedCourse,
+      };
+
+      pushHistory(newChart);
+    },
+    [chart, activeCourseIndex, pushHistory]
+  );
+
   // Zoom actions
   const zoomIn = useCallback(() => {
     setZoom((z) => Math.min(400, Math.round(z * 1.15)));
@@ -197,11 +316,11 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
     setCurrentTime(Math.max(0, Math.min(totalDuration, time)));
   }, [totalDuration]);
 
-  // Handle clicking / tapping on the timeline to place or erase notes
+  // Handle clicking / tapping on the timeline to place or erase notes or insert commands
   const handleTimelineTap = useCallback(
     (timelineX: number) => {
       const effectiveGrid = selectedGrid === 'free' ? 'free' : customGridDiv;
-      const snapResult = snapTimelineXToGrid(timelineX, timelineLayout, effectiveGrid);
+      const snapResult = snapTimelineXToGrid(timelineX, timeline, timelineLayout, effectiveGrid);
       if (!snapResult) return;
 
       const { measureIndex, rational, time } = snapResult;
@@ -210,11 +329,11 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
       setCurrentTime(time);
       setSelectedMeasureForEdit(measureIndex);
 
-      // If we are in note tab, perform note editing
-      if (selectedTab === 'note') {
-        const currentCourse = chart.courses[activeCourseIndex] || chart.activeCourse;
-        if (!currentCourse || !currentCourse.measures[measureIndex]) return;
+      const currentCourse = chart.courses[activeCourseIndex] || chart.activeCourse;
+      if (!currentCourse || !currentCourse.measures[measureIndex]) return;
 
+      // 1. Note Tab: Perform note editing
+      if (selectedTab === 'note') {
         const targetMeasure = currentCourse.measures[measureIndex];
 
         // Clone chart structure safely
@@ -297,6 +416,22 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
 
         pushHistory(newChart);
       }
+      // 2. GOGO Tab: Insert GOGOSTART or GOGOEND at snapped position
+      else if (selectedTab === 'gogo') {
+        insertCommandAtPosition(gogoMode, '', measureIndex, rational, time);
+      }
+      // 3. BPM Tab: Insert #BPMCHANGE at snapped position
+      else if (selectedTab === 'bpm') {
+        if (bpmInput > 0 && isFinite(bpmInput)) {
+          insertCommandAtPosition('BPMCHANGE', String(bpmInput), measureIndex, rational, time);
+        }
+      }
+      // 4. MEASURE Tab: Insert #MEASURE at snapped position
+      else if (selectedTab === 'measure') {
+        if (measureInput && measureInput.includes('/')) {
+          insertCommandAtPosition('MEASURE', measureInput, measureIndex, rational, time);
+        }
+      }
     },
     [
       chart,
@@ -305,9 +440,54 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
       selectedNoteTool,
       selectedGrid,
       customGridDiv,
+      timeline,
       timelineLayout,
+      gogoMode,
+      bpmInput,
+      measureInput,
+      insertCommandAtPosition,
       pushHistory,
     ]
+  );
+
+  // Direct actions callable from tool panels
+  const insertGogoDirect = useCallback(
+    (mode: 'GOGOSTART' | 'GOGOEND') => {
+      setGogoMode(mode);
+      const mIdx = selectedMeasureForEdit ?? activeMeasureIndex;
+      const m = timeline.getMeasureByIndex(mIdx);
+      if (m) {
+        insertCommandAtPosition(mode, '', mIdx, { numerator: 0, denominator: 1, fraction: 0 }, m.startTime);
+      }
+    },
+    [selectedMeasureForEdit, activeMeasureIndex, timeline, insertCommandAtPosition]
+  );
+
+  const insertBpmDirect = useCallback(
+    (bpm: number) => {
+      setBpmInput(bpm);
+      if (bpm > 0 && isFinite(bpm)) {
+        const mIdx = selectedMeasureForEdit ?? activeMeasureIndex;
+        const m = timeline.getMeasureByIndex(mIdx);
+        if (m) {
+          insertCommandAtPosition('BPMCHANGE', String(bpm), mIdx, { numerator: 0, denominator: 1, fraction: 0 }, m.startTime);
+        }
+      }
+    },
+    [selectedMeasureForEdit, activeMeasureIndex, timeline, insertCommandAtPosition]
+  );
+
+  const insertMeasureDirect = useCallback(
+    (num: number, den: number) => {
+      const sig = `${num}/${den}`;
+      setMeasureInput(sig);
+      const mIdx = selectedMeasureForEdit ?? activeMeasureIndex;
+      const m = timeline.getMeasureByIndex(mIdx);
+      if (m) {
+        insertCommandAtPosition('MEASURE', sig, mIdx, { numerator: 0, denominator: 1, fraction: 0 }, m.startTime);
+      }
+    },
+    [selectedMeasureForEdit, activeMeasureIndex, timeline, insertCommandAtPosition]
   );
 
   // Load a new TJA text
@@ -346,6 +526,12 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
     fileName,
     canUndo,
     canRedo,
+    gogoMode,
+    bpmInput,
+    measureInput,
+    setGogoMode,
+    setBpmInput,
+    setMeasureInput,
     togglePlayback,
     seekTime,
     zoomIn,
@@ -357,6 +543,10 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
     setCustomGridDiv,
     setFileName,
     handleTimelineTap,
+    insertCommandAtPosition,
+    insertGogoDirect,
+    insertBpmDirect,
+    insertMeasureDirect,
     undo,
     redo,
     loadTja,

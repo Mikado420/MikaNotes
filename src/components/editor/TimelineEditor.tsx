@@ -11,7 +11,7 @@
  * with floating ZoomControl and synchronous horizontal scrolling.
  */
 
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import { CourseModel, Timeline } from '../../core';
 import { TimelineLayout, GridDivision } from '../../editor/editor-types';
 import { timeToTimelineX } from '../../editor/coordinate-mapping';
@@ -57,6 +57,32 @@ export const TimelineEditor: React.FC<TimelineEditorProps> = ({
   onResetZoom,
 }) => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [viewportMetrics, setViewportMetrics] = useState({ scrollLeft: 0, clientWidth: 1200 });
+
+  // Update viewport bounds on scroll & resize for high-performance virtualization
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    const updateMetrics = () => {
+      setViewportMetrics({
+        scrollLeft: container.scrollLeft,
+        clientWidth: container.clientWidth || 1200,
+      });
+    };
+
+    updateMetrics();
+    container.addEventListener('scroll', updateMetrics, { passive: true });
+    window.addEventListener('resize', updateMetrics);
+    return () => {
+      container.removeEventListener('scroll', updateMetrics);
+      window.removeEventListener('resize', updateMetrics);
+    };
+  }, []);
+
+  // Compute visible start and end with a 1x viewportWidth lookahead / safety margin
+  const visibleStartX = Math.max(0, viewportMetrics.scrollLeft - viewportMetrics.clientWidth);
+  const visibleEndX = viewportMetrics.scrollLeft + viewportMetrics.clientWidth * 2;
 
   // Calculate current playhead X coordinate
   const playheadX = timeToTimelineX(currentTime, timeline, layout);
@@ -145,12 +171,14 @@ export const TimelineEditor: React.FC<TimelineEditorProps> = ({
             onSelectMeasure={onSelectMeasure}
           />
 
-          {/* 3. Note Lane */}
+          {/* 3. Note Lane (virtualized for ultra-fast rendering of large charts) */}
           <NoteLane
             course={course}
             layout={layout}
             selectedGrid={selectedGrid}
             onTapLane={onTapTimeline}
+            visibleStartX={visibleStartX}
+            visibleEndX={visibleEndX}
           />
 
           {/* 4. GOGO Lane */}
