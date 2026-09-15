@@ -108,6 +108,53 @@ export function findMeasureLayoutAtX(
 }
 
 /**
+ * Binary search to find the slice of visible MeasureLayoutInfo objects
+ * intersecting [minX, maxX] in O(log N) time.
+ */
+export function findVisibleMeasureLayouts(
+  minX: number,
+  maxX: number,
+  measures: MeasureLayoutInfo[]
+): MeasureLayoutInfo[] {
+  const n = measures.length;
+  if (n === 0) return [];
+  if (maxX < measures[0].startX || minX > measures[n - 1].endX) return [];
+
+  // Find first measure where endX >= minX
+  let low = 0;
+  let high = n - 1;
+  let startIdx = 0;
+
+  while (low <= high) {
+    const mid = (low + high) >> 1;
+    if (measures[mid].endX >= minX) {
+      startIdx = mid;
+      high = mid - 1;
+    } else {
+      low = mid + 1;
+    }
+  }
+
+  // Find last measure where startX <= maxX
+  low = startIdx;
+  high = n - 1;
+  let endIdx = n - 1;
+
+  while (low <= high) {
+    const mid = (low + high) >> 1;
+    if (measures[mid].startX <= maxX) {
+      endIdx = mid;
+      low = mid + 1;
+    } else {
+      high = mid - 1;
+    }
+  }
+
+  if (startIdx > endIdx) return [];
+  return measures.slice(startIdx, endIdx + 1);
+}
+
+/**
  * Convert playback time in seconds to timeline X coordinate.
  */
 export function timeToTimelineX(

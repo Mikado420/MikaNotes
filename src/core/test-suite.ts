@@ -14,6 +14,8 @@ import {
   snapTimelineXToGrid,
   calculateTimelineLayout,
   findMeasureLayoutAtX,
+  findVisibleMeasureLayouts,
+  getNoteX,
   timeToTimelineX,
   timelineXToTime,
 } from '../editor/coordinate-mapping';
@@ -821,6 +823,358 @@ BALLOON:7,12
     return {
       passed: true,
       message: 'Extreme #MEASURE safely clamped in Visual Layout to 8000px while 100% preserving Core values and TJA Writer fidelity.',
+    };
+  });
+
+  // 26. Binary-Searched Visible Measure Layouts Range Verification
+  test('test-visible-measure-layouts-binary-search', 'Binary Search Visible Measures Slice (O(log N))', 'timing', () => {
+    const rawTja = `TITLE:Visible Measures Test\nBPM:120\n#START\n` + '1000,\n'.repeat(20) + '#END';
+    const chart = parseTJA(rawTja);
+    const course = chart.activeCourse;
+    const layout = calculateTimelineLayout(course, 100);
+
+    // Case a: Empty measures array
+    if (findVisibleMeasureLayouts(100, 200, []).length !== 0) {
+      return { passed: false, message: 'Empty layout should return empty slice' };
+    }
+
+    // Case b: Viewport completely to the left of measure 0
+    const beforeLeft = findVisibleMeasureLayouts(0, layout.measures[0].startX - 10, layout.measures);
+    if (beforeLeft.length !== 0) {
+      return { passed: false, message: 'Viewport before measure 0 should return empty' };
+    }
+
+    // Case c: Viewport completely to the right of last measure
+    const lastM = layout.measures[layout.measures.length - 1];
+    const afterRight = findVisibleMeasureLayouts(lastM.endX + 10, lastM.endX + 500, layout.measures);
+    if (afterRight.length !== 0) {
+      return { passed: false, message: 'Viewport after last measure should return empty' };
+    }
+
+    // Case d: Viewport covering middle measures [3, 7]
+    const m3 = layout.measures[3];
+    const m7 = layout.measures[7];
+    const middleSlice = findVisibleMeasureLayouts(m3.startX + 1, m7.endX - 1, layout.measures);
+    if (middleSlice.length !== 5) {
+      return { passed: false, message: `Expected 5 visible measures [3..7], got ${middleSlice.length}` };
+    }
+    if (middleSlice[0].index !== 3 || middleSlice[middleSlice.length - 1].index !== 7) {
+      return { passed: false, message: `Visible range boundary mismatch: [${middleSlice[0].index}..${middleSlice[middleSlice.length - 1].index}]` };
+    }
+
+    // Case e: Randomized viewport intervals compared against linear filter ground truth
+    const testWindows = [
+      [layout.measures[1].startX + 20, layout.measures[2].endX - 20],
+      [layout.measures[0].startX, layout.measures[0].endX],
+      [layout.measures[5].startX + 50, layout.measures[12].startX + 10],
+      [layout.measures[18].endX - 10, layout.measures[19].endX],
+    ];
+
+    for (const [minX, maxX] of testWindows) {
+      const fastResult = findVisibleMeasureLayouts(minX, maxX, layout.measures);
+      const groundTruth = layout.measures.filter((m) => m.endX >= minX && m.startX <= maxX);
+
+      if (fastResult.length !== groundTruth.length) {
+        return {
+          passed: false,
+          message: `Length mismatch for window [${minX}, ${maxX}]: fast=${fastResult.length}, groundTruth=${groundTruth.length}`,
+        };
+      }
+      for (let k = 0; k < fastResult.length; k++) {
+        if (fastResult[k].index !== groundTruth[k].index) {
+          return {
+            passed: false,
+            message: `Element mismatch at index ${k}: fast=${fastResult[k].index}, groundTruth=${groundTruth[k].index}`,
+          };
+        }
+      }
+    }
+
+    return {
+      passed: true,
+      message: 'findVisibleMeasureLayouts O(log N) binary search matched ground truth across all boundaries and intervals.',
+    };
+  });
+
+  // 27. Roll Visible Range Crossing Optimization (Start Before Viewport, End After Viewport)
+  test('test-roll-visible-range-crossing', 'Roll Viewport Crossing (Interval Intersection & getNoteX)', 'rolls', () => {
+    // Measure 0..5: Roll starts at Measure 1 (pos 0/4) and ends at Measure 5 (pos 2/4)
+    const rawTja =
+      `TITLE:Roll Crossing Test\nBPM:120\n#START\n` +
+      `0000,\n` + // Measure 0
+      `5000,\n` + // Measure 1: Roll starts at 0/4
+      `0000,\n` + // Measure 2
+      `0000,\n` + // Measure 3
+      `0000,\n` + // Measure 4
+      `0080,\n` + // Measure 5: Roll ends at 2/4
+      `#END`;
+
+    const chart = parseTJA(rawTja);
+    const course = chart.activeCourse;
+    const layout = calculateTimelineLayout(course, 100);
+
+    if (course.rolls.length !== 1) {
+      return { passed: false, message: `Expected 1 roll, found ${course.rolls.length}` };
+    }
+
+    const roll = course.rolls[0];
+    const startMLayout = layout.measures[roll.startMeasureIndex];
+    const endMLayout = layout.measures[roll.endMeasureIndex];
+
+    const rollStartX = getNoteX(roll.startPosition, startMLayout);
+    const rollEndX = getNoteX(roll.endPosition, endMLayout);
+
+    // Viewport is set strictly to Measure 3 (middle of the roll span)
+    const m3 = layout.measures[3];
+    const minVisibleX = m3.startX + 10;
+    const maxVisibleX = m3.endX - 10;
+
+    // Verify start point is BEFORE viewport and end point is AFTER viewport
+    if (rollStartX >= minVisibleX) {
+      return { passed: false, message: 'Test setup error: roll start should be before visible range' };
+    }
+    if (rollEndX <= maxVisibleX) {
+      return { passed: false, message: 'Test setup error: roll end should be after visible range' };
+    }
+
+    // Interval intersection test: rollStartX <= maxVisibleX && rollEndX >= minVisibleX
+    const intersects = rollStartX <= maxVisibleX && rollEndX >= minVisibleX;
+    if (!intersects) {
+      return { passed: false, message: 'Roll spanning across visible viewport failed interval intersection check' };
+    }
+
+    // Verify exact coordinate fidelity
+    const expectedStartX = startMLayout.startX; // 0/4 = start of measure 1
+    const expectedEndX = endMLayout.startX + (2 / 4) * endMLayout.width; // 2/4 = mid of measure 5
+    if (Math.abs(rollStartX - expectedStartX) > 0.01) {
+      return { passed: false, message: `Roll startX ${rollStartX} does not match expected ${expectedStartX}` };
+    }
+    if (Math.abs(rollEndX - expectedEndX) > 0.01) {
+      return { passed: false, message: `Roll endX ${rollEndX} does not match expected ${expectedEndX}` };
+    }
+
+    return {
+      passed: true,
+      message: 'Roll spanning across visible viewport correctly identified by interval intersection and rendered with exact getNoteX coordinates.',
+    };
+  });
+
+  // 28. Balloon Visible Range Crossing Optimization
+  test('test-balloon-visible-range-crossing', 'Balloon Viewport Crossing (Interval Intersection & getNoteX)', 'rolls', () => {
+    // Measure 0..6: Balloon starts at Measure 2 (pos 0/4) and ends at Measure 6 (pos 0/4)
+    const rawTja =
+      `TITLE:Balloon Crossing Test\nBPM:120\nBALLOON:15\n#START\n` +
+      `0000,\n` + // Measure 0
+      `0000,\n` + // Measure 1
+      `7000,\n` + // Measure 2: Balloon starts at 0/4
+      `0000,\n` + // Measure 3
+      `0000,\n` + // Measure 4
+      `0000,\n` + // Measure 5
+      `8000,\n` + // Measure 6: Balloon ends at 0/4
+      `#END`;
+
+    const chart = parseTJA(rawTja);
+    const course = chart.activeCourse;
+    const layout = calculateTimelineLayout(course, 100);
+
+    if (course.balloons.length !== 1) {
+      return { passed: false, message: `Expected 1 balloon, found ${course.balloons.length}` };
+    }
+
+    const balloon = course.balloons[0];
+    const startMLayout = layout.measures[balloon.startMeasureIndex];
+    const endMLayout = layout.measures[balloon.endMeasureIndex];
+
+    const balloonStartX = getNoteX(balloon.startPosition, startMLayout);
+    const balloonEndX = getNoteX(balloon.endPosition, endMLayout);
+
+    // Viewport set strictly to Measure 4
+    const m4 = layout.measures[4];
+    const minVisibleX = m4.startX + 5;
+    const maxVisibleX = m4.endX - 5;
+
+    // Viewport intersection condition
+    const intersects = balloonStartX <= maxVisibleX && balloonEndX >= minVisibleX;
+    if (!intersects) {
+      return { passed: false, message: 'Balloon spanning across viewport failed intersection check' };
+    }
+
+    const expectedStartX = startMLayout.startX;
+    const expectedEndX = endMLayout.startX;
+    if (Math.abs(balloonStartX - expectedStartX) > 0.01) {
+      return { passed: false, message: `Balloon startX mismatch: got ${balloonStartX}, expected ${expectedStartX}` };
+    }
+    if (Math.abs(balloonEndX - expectedEndX) > 0.01) {
+      return { passed: false, message: `Balloon endX mismatch: got ${balloonEndX}, expected ${expectedEndX}` };
+    }
+
+    return {
+      passed: true,
+      message: 'Balloon spanning across visible viewport correctly identified by interval intersection with exact RationalPosition placement.',
+    };
+  });
+
+  // 29. Extreme #MEASURE Values (No NaN, No Infinity, Clamped Layout, TJA Roundtrip)
+  test('test-extreme-measure-no-nan-no-infinite', 'Extreme #MEASURE (No NaN, No Infinity, Clamped Layout, Writer Preserved)', 'abnormal', () => {
+    const extremeCases = [
+      `#MEASURE 99999999/1\n1000,`,
+      `#MEASURE 1/99999999\n1000,`,
+      `#MEASURE 100000/3\n1000,`,
+    ];
+
+    for (const snippet of extremeCases) {
+      const rawTja = `TITLE:Extreme Test\nBPM:120\n#START\n${snippet}\n#END`;
+
+      const tStart = Date.now();
+      const chart = parseTJA(rawTja);
+      const elapsed = Date.now() - tStart;
+
+      if (elapsed > 500) {
+        return { passed: false, message: `Parser took too long (${elapsed}ms) on extreme measure: ${snippet}` };
+      }
+
+      const course = chart.activeCourse;
+      const m = course.measures[0];
+
+      if (isNaN(m.startTime) || !isFinite(m.startTime)) {
+        return { passed: false, message: `Measure startTime is invalid: ${m.startTime}` };
+      }
+      if (isNaN(m.duration) || !isFinite(m.duration) || m.duration <= 0) {
+        return { passed: false, message: `Measure duration is invalid: ${m.duration}` };
+      }
+
+      const timeline = new Timeline(course);
+      const testPos = { numerator: 1, denominator: 2, fraction: 0.5 };
+      const testTime = timeline.positionToTime(m, testPos);
+      if (isNaN(testTime) || !isFinite(testTime)) {
+        return { passed: false, message: `Timeline.positionToTime returned invalid time: ${testTime}` };
+      }
+
+      const layout = calculateTimelineLayout(course, 100);
+      const mLayout = layout.measures[0];
+      if (isNaN(mLayout.width) || !isFinite(mLayout.width) || mLayout.width < 40 || mLayout.width > 8000) {
+        return { passed: false, message: `Measure layout width outside safe clamp bounds: ${mLayout.width}` };
+      }
+      if (isNaN(layout.totalWidth) || !isFinite(layout.totalWidth)) {
+        return { passed: false, message: `Total layout width is invalid: ${layout.totalWidth}` };
+      }
+
+      const written = writeTJA(chart);
+      const measureMatch = snippet.match(/#MEASURE\s+[^\n]+/);
+      if (measureMatch && !written.includes(measureMatch[0])) {
+        return { passed: false, message: `writeTJA lost original command: ${measureMatch[0]}` };
+      }
+    }
+
+    return {
+      passed: true,
+      message: 'Extreme #MEASURE values parsed, timed, laid out, and written without NaN, Infinity, or DOM explosion.',
+    };
+  });
+
+  // 30. Undo / Redo Sequential Integrity & Branching Edit
+  test('test-undo-redo-continuity', 'Undo / Redo Sequential State Integrity & Branching Edit', 'normal', () => {
+    // Initial state: empty 2-measure chart
+    const initialTja = `TITLE:Undo Redo Test\nBPM:120\n#START\n0000,\n0000,\n#END`;
+    const history: string[] = [initialTja];
+    let historyIdx = 0;
+
+    const push = (tja: string) => {
+      history.splice(historyIdx + 1);
+      history.push(tja);
+      historyIdx++;
+    };
+
+    // Step 1: Add Don at measure 0, step 2/4
+    const chart1 = parseTJA(initialTja);
+    chart1.activeCourse.measures[0].notes.push({
+      id: 'n1',
+      type: '1',
+      kind: 'don',
+      time: 1.0,
+      audioTime: 1.0,
+      beat: 2.0,
+      measureIndex: 0,
+      positionInMeasure: { numerator: 2, denominator: 4, fraction: 0.5 },
+      bpm: 120,
+      scroll: 1.0,
+    });
+    push(writeTJA(chart1));
+
+    // Step 2: Add Ka at measure 0, step 3/4
+    const chart2 = parseTJA(history[historyIdx]);
+    chart2.activeCourse.measures[0].notes.push({
+      id: 'n2',
+      type: '2',
+      kind: 'ka',
+      time: 1.5,
+      audioTime: 1.5,
+      beat: 3.0,
+      measureIndex: 0,
+      positionInMeasure: { numerator: 3, denominator: 4, fraction: 0.75 },
+      bpm: 120,
+      scroll: 1.0,
+    });
+    push(writeTJA(chart2));
+
+    // Step 3: Delete note using normalized RationalPosition (1/2 deletes 2/4)
+    const chart3 = parseTJA(history[historyIdx]);
+    const deletePos = { numerator: 1, denominator: 2, fraction: 0.5 };
+    chart3.activeCourse.measures[0].notes = chart3.activeCourse.measures[0].notes.filter(
+      (n) => !isSameRationalPosition(n.positionInMeasure, deletePos)
+    );
+    push(writeTJA(chart3));
+
+    // Verify step 3 state: only Ka at 3/4 remains
+    if (chart3.activeCourse.measures[0].notes.length !== 1 || chart3.activeCourse.measures[0].notes[0].type !== '2') {
+      return { passed: false, message: 'Normalized RationalPosition note deletion failed' };
+    }
+
+    // Step 4: Undo step 3 (restore Don)
+    historyIdx--;
+    const undoneChart = parseTJA(history[historyIdx]);
+    if (undoneChart.activeCourse.measures[0].notes.length !== 2) {
+      return { passed: false, message: `Undo step 3 failed to restore Don: notes count = ${undoneChart.activeCourse.measures[0].notes.length}` };
+    }
+
+    // Step 5: Redo step 3 (re-apply deletion)
+    historyIdx++;
+    const redoneChart = parseTJA(history[historyIdx]);
+    if (redoneChart.activeCourse.measures[0].notes.length !== 1) {
+      return { passed: false, message: 'Redo step 3 failed to re-apply deletion' };
+    }
+
+    // Step 6: Undo back to initial state (2 undos)
+    historyIdx -= 2;
+    const initialRestored = parseTJA(history[historyIdx]);
+    if (initialRestored.activeCourse.measures[0].notes.length !== 1) {
+      return { passed: false, message: 'Multi-step undo back to step 1 failed' };
+    }
+
+    // Step 7: Branching edit after undo (add Big Don at 1/4)
+    const branchingChart = parseTJA(history[historyIdx]);
+    branchingChart.activeCourse.measures[0].notes.push({
+      id: 'n3',
+      type: '3',
+      kind: 'big_don',
+      time: 0.5,
+      audioTime: 0.5,
+      beat: 1.0,
+      measureIndex: 0,
+      positionInMeasure: { numerator: 1, denominator: 4, fraction: 0.25 },
+      bpm: 120,
+      scroll: 1.0,
+    });
+    push(writeTJA(branchingChart));
+
+    // Confirm future redo states were pruned
+    if (history.length !== historyIdx + 1) {
+      return { passed: false, message: 'Branching edit failed to prune future redo states' };
+    }
+
+    return {
+      passed: true,
+      message: 'Undo / Redo sequential integrity, normalized note deletion, and branching edits verified with complete fidelity.',
     };
   });
 

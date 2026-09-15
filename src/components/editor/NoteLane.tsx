@@ -7,7 +7,7 @@
 import React from 'react';
 import { CourseModel, NoteModel, RollModel, BalloonModel } from '../../core';
 import { TimelineLayout, GridDivision } from '../../editor/editor-types';
-import { getNoteX } from '../../editor/coordinate-mapping';
+import { getNoteX, findVisibleMeasureLayouts } from '../../editor/coordinate-mapping';
 
 interface NoteLaneProps {
   course: CourseModel;
@@ -38,58 +38,124 @@ export const NoteLane: React.FC<NoteLaneProps> = ({
   const minVisibleX = visibleStartX ?? 0;
   const maxVisibleX = visibleEndX ?? layout.totalWidth;
 
-  // Filter visible measures within viewport bounds (+ safety margins)
-  const visibleMeasures = layout.measures.filter(
-    (m) => m.endX >= minVisibleX && m.startX <= maxVisibleX
-  );
+  // Filter visible measures using O(log N) binary search range slice
+  const visibleMeasures = React.useMemo(() => {
+    return findVisibleMeasureLayouts(minVisibleX, maxVisibleX, layout.measures);
+  }, [minVisibleX, maxVisibleX, layout.measures]);
 
-  // Visible Rolls: interval intersection check (rollStartX <= maxVisibleX && rollEndX >= minVisibleX)
-  const visibleRolls = React.useMemo(() => {
-    if (course.rolls.length === 0) return [];
-    const results: { roll: RollModel; startX: number; endX: number; key: number }[] = [];
+  // Precompute roll pixel bounds memoized on course.rolls and layout.measures
+  // Does NOT re-run during scrolling!
+  const rollIntervals = React.useMemo(() => {
+    if (course.rolls.length === 0) return { items: [], maxSpan: 0 };
+    let maxSpan = 0;
+    const items: { roll: RollModel; startX: number; endX: number; key: number }[] = [];
     for (let rIdx = 0; rIdx < course.rolls.length; rIdx++) {
       const roll = course.rolls[rIdx];
       const startMLayout = layout.measures[roll.startMeasureIndex];
       const endMLayout = layout.measures[roll.endMeasureIndex];
       if (!startMLayout || !endMLayout) continue;
 
-      // Fast check using measure boundaries
-      if (endMLayout.endX < minVisibleX || startMLayout.startX > maxVisibleX) {
-        continue;
-      }
-
-      // Exact pixel boundary check
       const startX = getNoteX(roll.startPosition, startMLayout);
       const endX = getNoteX(roll.endPosition, endMLayout);
-      if (startX <= maxVisibleX && endX >= minVisibleX) {
-        results.push({ roll, startX, endX, key: rIdx });
+      const span = Math.max(0, endX - startX);
+      if (span > maxSpan) maxSpan = span;
+
+      items.push({ roll, startX, endX, key: rIdx });
+    }
+    return { items, maxSpan };
+  }, [course.rolls, layout.measures]);
+
+  // Visible Rolls: fast interval intersection query
+  // Supports cases where roll starts before visible window but spans across it
+  const visibleRolls = React.useMemo(() => {
+    const { items, maxSpan } = rollIntervals;
+    if (items.length === 0) return [];
+
+    const n = items.length;
+    const thresholdStart = minVisibleX - maxSpan;
+
+    // Binary search for first candidate roll whose startX >= thresholdStart
+    let low = 0;
+    let high = n - 1;
+    let searchStart = 0;
+    while (low <= high) {
+      const mid = (low + high) >> 1;
+      if (items[mid].startX >= thresholdStart) {
+        searchStart = mid;
+        high = mid - 1;
+      } else {
+        low = mid + 1;
+      }
+    }
+
+    const results: { roll: RollModel; startX: number; endX: number; key: number }[] = [];
+    for (let i = searchStart; i < n; i++) {
+      const item = items[i];
+      if (item.startX > maxVisibleX) {
+        break; // Past right edge of viewport
+      }
+      if (item.startX <= maxVisibleX && item.endX >= minVisibleX) {
+        results.push(item);
       }
     }
     return results;
-  }, [course.rolls, layout.measures, minVisibleX, maxVisibleX]);
+  }, [rollIntervals, minVisibleX, maxVisibleX]);
 
-  // Visible Balloons: interval intersection check (balloonStartX <= maxVisibleX && balloonEndX >= minVisibleX)
-  const visibleBalloons = React.useMemo(() => {
-    if (course.balloons.length === 0) return [];
-    const results: { balloon: BalloonModel; startX: number; endX: number; key: number }[] = [];
+  // Precompute balloon pixel bounds memoized on course.balloons and layout.measures
+  const balloonIntervals = React.useMemo(() => {
+    if (course.balloons.length === 0) return { items: [], maxSpan: 0 };
+    let maxSpan = 0;
+    const items: { balloon: BalloonModel; startX: number; endX: number; key: number }[] = [];
     for (let bIdx = 0; bIdx < course.balloons.length; bIdx++) {
       const balloon = course.balloons[bIdx];
       const startMLayout = layout.measures[balloon.startMeasureIndex];
       const endMLayout = layout.measures[balloon.endMeasureIndex];
       if (!startMLayout || !endMLayout) continue;
 
-      if (endMLayout.endX < minVisibleX || startMLayout.startX > maxVisibleX) {
-        continue;
-      }
-
       const startX = getNoteX(balloon.startPosition, startMLayout);
       const endX = getNoteX(balloon.endPosition, endMLayout);
-      if (startX <= maxVisibleX && endX >= minVisibleX) {
-        results.push({ balloon, startX, endX, key: bIdx });
+      const span = Math.max(0, endX - startX);
+      if (span > maxSpan) maxSpan = span;
+
+      items.push({ balloon, startX, endX, key: bIdx });
+    }
+    return { items, maxSpan };
+  }, [course.balloons, layout.measures]);
+
+  // Visible Balloons: fast interval intersection query
+  const visibleBalloons = React.useMemo(() => {
+    const { items, maxSpan } = balloonIntervals;
+    if (items.length === 0) return [];
+
+    const n = items.length;
+    const thresholdStart = minVisibleX - maxSpan;
+
+    // Binary search for first candidate balloon whose startX >= thresholdStart
+    let low = 0;
+    let high = n - 1;
+    let searchStart = 0;
+    while (low <= high) {
+      const mid = (low + high) >> 1;
+      if (items[mid].startX >= thresholdStart) {
+        searchStart = mid;
+        high = mid - 1;
+      } else {
+        low = mid + 1;
+      }
+    }
+
+    const results: { balloon: BalloonModel; startX: number; endX: number; key: number }[] = [];
+    for (let i = searchStart; i < n; i++) {
+      const item = items[i];
+      if (item.startX > maxVisibleX) {
+        break; // Past right edge of viewport
+      }
+      if (item.startX <= maxVisibleX && item.endX >= minVisibleX) {
+        results.push(item);
       }
     }
     return results;
-  }, [course.balloons, layout.measures, minVisibleX, maxVisibleX]);
+  }, [balloonIntervals, minVisibleX, maxVisibleX]);
 
   // Map end markers by measureIndex for O(1) lookup during measure iteration
   const rollEndsByMeasure = React.useMemo(() => {

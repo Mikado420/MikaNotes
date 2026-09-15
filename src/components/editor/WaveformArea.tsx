@@ -23,19 +23,26 @@ export const WaveformArea: React.FC<WaveformAreaProps> = ({ layout }) => {
     const paths: string[] = [];
 
     // Seeded pseudo-random waveform generator for consistent look across frames
+    let mIdx = 0;
+    const measures = layout.measures;
+    const numMeasures = measures.length;
+
     for (let i = 0; i < count; i++) {
       const x = i * step;
 
+      // Advance measure pointer monotonically with x
+      while (mIdx < numMeasures - 1 && x > measures[mIdx].endX) {
+        mIdx++;
+      }
+
       // Find if we are near a measure boundary or beat
       let ampBase = 0.35;
-      for (const m of layout.measures) {
-        if (x >= m.startX && x <= m.endX) {
-          const relX = x - m.startX;
-          const beatDist = relX % layout.baseBeatWidth;
-          if (beatDist < 4 || beatDist > layout.baseBeatWidth - 4) {
-            ampBase = 0.75; // Peak on beats
-          }
-          break;
+      const m = measures[mIdx];
+      if (m && x >= m.startX && x <= m.endX) {
+        const relX = x - m.startX;
+        const beatDist = relX % layout.baseBeatWidth;
+        if (beatDist < 4 || beatDist > layout.baseBeatWidth - 4) {
+          ampBase = 0.75; // Peak on beats
         }
       }
 

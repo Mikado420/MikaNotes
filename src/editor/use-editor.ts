@@ -245,8 +245,7 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
             (e) =>
               !(
                 e.name === commandName &&
-                e.positionInMeasure.numerator === rational.numerator &&
-                e.positionInMeasure.denominator === rational.denominator
+                isSameRationalPosition(e.positionInMeasure, rational)
               )
           );
         }
@@ -270,8 +269,7 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
             !(
               e.measureIndex === measureIndex &&
               e.name === commandName &&
-              e.positionInMeasure.numerator === rational.numerator &&
-              e.positionInMeasure.denominator === rational.denominator
+              isSameRationalPosition(e.positionInMeasure, rational)
             )
         );
       }
