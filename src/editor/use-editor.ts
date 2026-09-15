@@ -14,6 +14,7 @@ import {
   Timeline,
   isSameRationalPosition,
   parseTJA,
+  validateTJARaw,
   writeTJA,
 } from '../core';
 import {
@@ -34,13 +35,34 @@ export interface UseEditorOptions {
   initialFileName?: string;
 }
 
+/**
+ * Determine initial / preferred CourseKey (3: Oni -> 2: Hard -> 1: Normal -> 0: Easy -> 4: Edit)
+ */
+export function getPreferredCourseKey(chartModel: ChartModel): number {
+  if (chartModel.courses[3]) return 3; // Oni
+  if (chartModel.courses[2]) return 2; // Hard
+  if (chartModel.courses[1]) return 1; // Normal
+  if (chartModel.courses[0]) return 0; // Easy
+  if (chartModel.courses[4]) return 4; // Edit
+  const keys = Object.keys(chartModel.courses).map(Number);
+  if (keys.length > 0) return keys[0];
+  return chartModel.activeCourseKey ?? 3;
+}
+
 export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: UseEditorOptions) {
   // 1. Chart Model & History State
   const [chart, setChart] = useState<ChartModel>(() => parseTJA(initialTjaText));
-  const [activeCourseIndex, setActiveCourseIndex] = useState<number>(0);
+  const [activeCourseKey, setActiveCourseKey] = useState<number>(() => {
+    try {
+      const parsed = parseTJA(initialTjaText);
+      return getPreferredCourseKey(parsed);
+    } catch {
+      return 3;
+    }
+  });
   const [fileName, setFileName] = useState<string>(initialFileName);
 
-  // Undo / Redo History (stores serialized TJA or cloned ChartModel)
+  // Undo / Redo History (stores serialized TJA strings)
   const historyRef = useRef<string[]>([initialTjaText]);
   const historyIndexRef = useRef<number>(0);
   const [, setHistoryVersion] = useState<number>(0);
@@ -59,10 +81,15 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
   const [bpmInput, setBpmInput] = useState<number>(120);
   const [measureInput, setMeasureInput] = useState<string>('4/4');
 
-  // Active course reference
+  // Available course keys in current chart
+  const availableCourseKeys = useMemo<number[]>(() => {
+    return Object.keys(chart.courses).map(Number).sort((a, b) => a - b);
+  }, [chart.courses]);
+
+  // Active course reference based on activeCourseKey
   const activeCourse: CourseModel = useMemo(() => {
-    return chart.courses[activeCourseIndex] || chart.activeCourse || chart.courses[0];
-  }, [chart, activeCourseIndex]);
+    return chart.courses[activeCourseKey] || chart.activeCourse || Object.values(chart.courses)[0];
+  }, [chart, activeCourseKey]);
 
   // Derived Timeline for fast binary-search range queries
   const timeline: Timeline = useMemo(() => {
@@ -145,25 +172,28 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
   }, [isPlaying, totalDuration, stopPlayback]);
 
   // Commit changes to history with Core re-parsing to guarantee unified timing & events
-  const pushHistory = useCallback((newChart: ChartModel) => {
-    try {
-      const serialized = writeTJA(newChart);
-      const newHistory = historyRef.current.slice(0, historyIndexRef.current + 1);
-      newHistory.push(serialized);
-      if (newHistory.length > 50) newHistory.shift(); // Bound history size
-      historyRef.current = newHistory;
-      historyIndexRef.current = newHistory.length - 1;
+  const pushHistory = useCallback(
+    (newChart: ChartModel) => {
+      try {
+        const serialized = writeTJA(newChart);
+        const newHistory = historyRef.current.slice(0, historyIndexRef.current + 1);
+        newHistory.push(serialized);
+        if (newHistory.length > 50) newHistory.shift(); // Bound history size
+        historyRef.current = newHistory;
+        historyIndexRef.current = newHistory.length - 1;
 
-      // Re-parse with TJA Core to guarantee all measures, events, notes, and timelines are fully unified
-      const recalculated = parseTJA(serialized);
-      setChart(recalculated);
-      setHistoryVersion((v) => v + 1);
-    } catch (e) {
-      console.error('Failed to push history:', e);
-      setChart(newChart);
-      setHistoryVersion((v) => v + 1);
-    }
-  }, []);
+        // Re-parse with TJA Core to guarantee all measures, events, notes, and timelines are fully unified
+        const recalculated = parseTJA(serialized, { courseKey: activeCourseKey });
+        setChart(recalculated);
+        setHistoryVersion((v) => v + 1);
+      } catch (e) {
+        console.error('Failed to push history:', e);
+        setChart(newChart);
+        setHistoryVersion((v) => v + 1);
+      }
+    },
+    [activeCourseKey]
+  );
 
   const canUndo = historyIndexRef.current > 0;
   const canRedo = historyIndexRef.current < historyRef.current.length - 1;
@@ -173,26 +203,32 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
     historyIndexRef.current -= 1;
     const prevTja = historyRef.current[historyIndexRef.current];
     try {
-      const restored = parseTJA(prevTja);
+      const restored = parseTJA(prevTja, { courseKey: activeCourseKey });
       setChart(restored);
+      if (!restored.courses[activeCourseKey]) {
+        setActiveCourseKey(getPreferredCourseKey(restored));
+      }
       setHistoryVersion((v) => v + 1);
     } catch (e) {
       console.error('Failed to undo:', e);
     }
-  }, [canUndo]);
+  }, [canUndo, activeCourseKey]);
 
   const redo = useCallback(() => {
     if (!canRedo) return;
     historyIndexRef.current += 1;
     const nextTja = historyRef.current[historyIndexRef.current];
     try {
-      const restored = parseTJA(nextTja);
+      const restored = parseTJA(nextTja, { courseKey: activeCourseKey });
       setChart(restored);
+      if (!restored.courses[activeCourseKey]) {
+        setActiveCourseKey(getPreferredCourseKey(restored));
+      }
       setHistoryVersion((v) => v + 1);
     } catch (e) {
       console.error('Failed to redo:', e);
     }
-  }, [canRedo]);
+  }, [canRedo, activeCourseKey]);
 
   // Common command insertion (GOGO, BPM, MEASURE, etc.) using RationalPosition
   const insertCommandAtPosition = useCallback(
@@ -203,7 +239,7 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
       rational: RationalPosition,
       time: number
     ) => {
-      const currentCourse = chart.courses[activeCourseIndex] || chart.activeCourse;
+      const currentCourse = chart.courses[activeCourseKey] || chart.activeCourse;
       if (!currentCourse || !currentCourse.measures[measureIndex]) return;
 
       const trimmedVal = value.trim();
@@ -282,18 +318,21 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
         events: updatedCourseEvents,
       };
 
-      const updatedCourses = [...chart.courses];
-      updatedCourses[activeCourseIndex] = updatedCourse;
+      const updatedCourses: Record<number, CourseModel> = {
+        ...chart.courses,
+        [activeCourseKey]: updatedCourse,
+      };
 
       const newChart: ChartModel = {
         ...chart,
         courses: updatedCourses,
+        activeCourseKey,
         activeCourse: updatedCourse,
       };
 
       pushHistory(newChart);
     },
-    [chart, activeCourseIndex, pushHistory]
+    [chart, activeCourseKey, pushHistory]
   );
 
   // Zoom actions
@@ -326,14 +365,12 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
       setCurrentTime(time);
       setSelectedMeasureForEdit(measureIndex);
 
-      const currentCourse = chart.courses[activeCourseIndex] || chart.activeCourse;
+      const currentCourse = chart.courses[activeCourseKey] || chart.activeCourse;
       if (!currentCourse || !currentCourse.measures[measureIndex]) return;
 
       // 1. Note Tab: Perform note editing
       if (selectedTab === 'note') {
-        const targetMeasure = currentCourse.measures[measureIndex];
-
-        // Clone chart structure safely
+        // Clone course measures safely
         const updatedCourse: CourseModel = {
           ...currentCourse,
           measures: currentCourse.measures.map((m, idx) => {
@@ -376,7 +413,7 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
                 (a, b) => a.positionInMeasure.fraction - b.positionInMeasure.fraction
               );
             } else {
-              // Roll, big roll, balloon selection in Phase 2-1: prepared for future expansion
+              // Roll, big roll, balloon selection
               return m;
             }
 
@@ -394,12 +431,15 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
         }
         updatedCourse.notes = allNotes.sort((a, b) => a.time - b.time);
 
-        const updatedCourses = [...chart.courses];
-        updatedCourses[activeCourseIndex] = updatedCourse;
+        const updatedCourses: Record<number, CourseModel> = {
+          ...chart.courses,
+          [activeCourseKey]: updatedCourse,
+        };
 
         const newChart: ChartModel = {
           ...chart,
           courses: updatedCourses,
+          activeCourseKey,
           activeCourse: updatedCourse,
         };
 
@@ -427,7 +467,7 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
     },
     [
       chart,
-      activeCourseIndex,
+      activeCourseKey,
       selectedTab,
       selectedNoteTool,
       selectedGrid,
@@ -485,10 +525,11 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
   const loadTja = useCallback((tjaText: string, newFileName?: string) => {
     try {
       const parsed = parseTJA(tjaText);
+      const initialKey = getPreferredCourseKey(parsed);
       historyRef.current = [tjaText];
       historyIndexRef.current = 0;
       setChart(parsed);
-      setActiveCourseIndex(0);
+      setActiveCourseKey(initialKey);
       setCurrentTime(0);
       setIsPlaying(false);
       if (newFileName) setFileName(newFileName);
@@ -499,8 +540,50 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
     }
   }, []);
 
+  // Apply TJA text directly from Text Editor with error protection
+  const applyTjaText = useCallback(
+    (tjaText: string): { success: boolean; error?: string } => {
+      try {
+        const validation = validateTJARaw(tjaText);
+        if (validation.errors.length > 0) {
+          const firstErr = validation.errors[0];
+          return {
+            success: false,
+            error: `行 ${firstErr.line ?? '?'}: ${firstErr.message}`,
+          };
+        }
+
+        const parsed = parseTJA(tjaText, { courseKey: activeCourseKey });
+        const nextKey = parsed.courses[activeCourseKey]
+          ? activeCourseKey
+          : getPreferredCourseKey(parsed);
+
+        // Record serialized state into history stack for seamless Undo / Redo
+        const newHistory = historyRef.current.slice(0, historyIndexRef.current + 1);
+        newHistory.push(tjaText);
+        if (newHistory.length > 50) newHistory.shift();
+        historyRef.current = newHistory;
+        historyIndexRef.current = newHistory.length - 1;
+
+        setChart(parsed);
+        setActiveCourseKey(nextKey);
+        setHistoryVersion((v) => v + 1);
+        return { success: true };
+      } catch (err: any) {
+        return {
+          success: false,
+          error: `パースエラー: ${err?.message || String(err)}`,
+        };
+      }
+    },
+    [activeCourseKey]
+  );
+
   return {
     chart,
+    activeCourseKey,
+    setActiveCourseKey,
+    availableCourseKeys,
     activeCourse,
     timeline,
     totalDuration,
@@ -539,6 +622,7 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
     undo,
     redo,
     loadTja,
+    applyTjaText,
     pushHistory,
   };
 }

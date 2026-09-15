@@ -3,22 +3,47 @@
  * Renders Go-Go Time ranges as prominent golden bands on the timeline.
  */
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import { CourseModel, Timeline } from '../../core';
 import { TimelineLayout } from '../../editor/editor-types';
-import { timeToTimelineX } from '../../editor/coordinate-mapping';
+import { timeToTimelineX, findVisibleMeasureLayouts } from '../../editor/coordinate-mapping';
 
 interface GogoLaneProps {
   course: CourseModel;
   timeline: Timeline;
   layout: TimelineLayout;
+  visibleStartX?: number;
+  visibleEndX?: number;
 }
 
 export const GogoLane: React.FC<GogoLaneProps> = ({
   course,
   timeline,
   layout,
+  visibleStartX,
+  visibleEndX,
 }) => {
+  const visibleMeasures = useMemo(() => {
+    if (visibleStartX !== undefined && visibleEndX !== undefined) {
+      return findVisibleMeasureLayouts(visibleStartX, visibleEndX, layout.measures);
+    }
+    return layout.measures;
+  }, [layout.measures, visibleStartX, visibleEndX]);
+
+  const visibleGogoRanges = useMemo(() => {
+    return course.gogoRanges
+      .map((gogo, idx) => {
+        const startX = timeToTimelineX(gogo.startTime, timeline, layout);
+        const endX = timeToTimelineX(gogo.endTime, timeline, layout);
+        const width = Math.max(12, endX - startX);
+        return { gogo, idx, startX, width, endX };
+      })
+      .filter((item) => {
+        if (visibleStartX === undefined || visibleEndX === undefined) return true;
+        return item.endX >= visibleStartX && item.startX <= visibleEndX;
+      });
+  }, [course.gogoRanges, timeline, layout, visibleStartX, visibleEndX]);
+
   return (
     <div
       id="gogo-lane"
@@ -30,7 +55,7 @@ export const GogoLane: React.FC<GogoLaneProps> = ({
         className="absolute inset-0 w-full h-full pointer-events-none"
         style={{ width: `${layout.totalWidth}px`, height: '100%' }}
       >
-        {layout.measures.map((m) => (
+        {visibleMeasures.map((m) => (
           <line
             key={`gogo-m-${m.index}`}
             x1={m.startX}
@@ -43,11 +68,7 @@ export const GogoLane: React.FC<GogoLaneProps> = ({
         ))}
 
         {/* GoGo ranges as golden / amber luminous bands matching the reference image */}
-        {course.gogoRanges.map((gogo, idx) => {
-          const startX = timeToTimelineX(gogo.startTime, timeline, layout);
-          const endX = timeToTimelineX(gogo.endTime, timeline, layout);
-          const width = Math.max(12, endX - startX);
-
+        {visibleGogoRanges.map(({ idx, startX, width }) => {
           return (
             <g key={`gogo-band-${idx}`}>
               <rect

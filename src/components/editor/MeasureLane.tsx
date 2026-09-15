@@ -3,14 +3,28 @@
  * Displays time signatures (4/4, 3/4, 7/8) for each measure across the shared timeline.
  */
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import { TimelineLayout } from '../../editor/editor-types';
+import { findVisibleMeasureLayouts } from '../../editor/coordinate-mapping';
 
 interface MeasureLaneProps {
   layout: TimelineLayout;
+  visibleStartX?: number;
+  visibleEndX?: number;
 }
 
-export const MeasureLane: React.FC<MeasureLaneProps> = ({ layout }) => {
+export const MeasureLane: React.FC<MeasureLaneProps> = ({
+  layout,
+  visibleStartX,
+  visibleEndX,
+}) => {
+  const visibleMeasures = useMemo(() => {
+    if (visibleStartX !== undefined && visibleEndX !== undefined) {
+      return findVisibleMeasureLayouts(visibleStartX, visibleEndX, layout.measures);
+    }
+    return layout.measures;
+  }, [layout.measures, visibleStartX, visibleEndX]);
+
   return (
     <div
       id="measure-lane"
@@ -18,7 +32,7 @@ export const MeasureLane: React.FC<MeasureLaneProps> = ({ layout }) => {
       style={{ width: `${layout.totalWidth}px` }}
     >
       {/* Measure time signature labels */}
-      {layout.measures.map((m) => {
+      {visibleMeasures.map((m) => {
         const timeSig = `${m.measure.numerator}/${m.measure.denominator}`;
 
         return (

@@ -3,27 +3,39 @@
  * Renders measure numbers (0, 1, 2... or offset) with highlighted active measure badge
  */
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import { TimelineLayout } from '../../editor/editor-types';
+import { findVisibleMeasureLayouts } from '../../editor/coordinate-mapping';
 
 interface MeasureHeaderProps {
   layout: TimelineLayout;
   activeMeasureIndex: number;
   onSelectMeasure?: (measureIndex: number) => void;
+  visibleStartX?: number;
+  visibleEndX?: number;
 }
 
 export const MeasureHeader: React.FC<MeasureHeaderProps> = ({
   layout,
   activeMeasureIndex,
   onSelectMeasure,
+  visibleStartX,
+  visibleEndX,
 }) => {
+  const visibleMeasures = useMemo(() => {
+    if (visibleStartX !== undefined && visibleEndX !== undefined) {
+      return findVisibleMeasureLayouts(visibleStartX, visibleEndX, layout.measures);
+    }
+    return layout.measures;
+  }, [layout.measures, visibleStartX, visibleEndX]);
+
   return (
     <div
       id="measure-header-lane"
       className="relative h-6 bg-[#080d17] border-b border-slate-800 text-xs font-mono select-none flex"
       style={{ width: `${layout.totalWidth}px` }}
     >
-      {layout.measures.map((m) => {
+      {visibleMeasures.map((m) => {
         const isActive = m.index === activeMeasureIndex;
 
         return (

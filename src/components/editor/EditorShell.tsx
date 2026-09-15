@@ -9,6 +9,7 @@ import { EditorHeader } from './EditorHeader';
 import { TimelineEditor } from './TimelineEditor';
 import { EditorToolbar } from './EditorToolbar';
 import { EditorMenuModal } from './EditorMenuModal';
+import { TjaTextEditorModal } from './TjaTextEditorModal';
 
 interface EditorShellProps {
   initialTja: string;
@@ -22,6 +23,7 @@ export const EditorShell: React.FC<EditorShellProps> = ({
   onSwitchToWorkbench,
 }) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isTextEditorOpen, setIsTextEditorOpen] = useState(false);
 
   const editor = useEditor({
     initialTjaText: initialTja,
@@ -47,6 +49,10 @@ export const EditorShell: React.FC<EditorShellProps> = ({
         onRedo={editor.redo}
         onOpenSettings={() => setIsMenuOpen(true)}
         onOpenMenu={() => setIsMenuOpen(true)}
+        activeCourseKey={editor.activeCourseKey}
+        availableCourseKeys={editor.availableCourseKeys}
+        onSelectCourseKey={editor.setActiveCourseKey}
+        onOpenTextEditor={() => setIsTextEditorOpen(true)}
       />
 
       {/* 2. Main Visual Multi-Lane Timeline */}
@@ -94,6 +100,19 @@ export const EditorShell: React.FC<EditorShellProps> = ({
         fileName={editor.fileName}
         onLoadTja={editor.loadTja}
         onSwitchToWorkbench={onSwitchToWorkbench}
+        onOpenTextEditor={() => {
+          setIsMenuOpen(false);
+          setIsTextEditorOpen(true);
+        }}
+      />
+
+      {/* 5. TJA Text Editor Modal */}
+      <TjaTextEditorModal
+        isOpen={isTextEditorOpen}
+        onClose={() => setIsTextEditorOpen(false)}
+        chart={editor.chart}
+        fileName={editor.fileName}
+        onApplyTja={editor.applyTjaText}
       />
     </div>
   );

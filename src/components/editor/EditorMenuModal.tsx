@@ -5,7 +5,7 @@
  */
 
 import React, { useState } from 'react';
-import { X, FileText, Download, Upload, Activity, Sparkles, Copy, Check } from 'lucide-react';
+import { X, FileText, Download, Upload, Activity, Sparkles, Copy, Check, FileCode } from 'lucide-react';
 import { PRESET_CHARTS } from '../../core/sample-charts';
 import { ChartModel, writeTJA } from '../../core';
 
@@ -16,6 +16,7 @@ interface EditorMenuModalProps {
   fileName: string;
   onLoadTja: (tja: string, fileName?: string) => void;
   onSwitchToWorkbench: () => void;
+  onOpenTextEditor?: () => void;
 }
 
 export const EditorMenuModal: React.FC<EditorMenuModalProps> = ({
@@ -25,6 +26,7 @@ export const EditorMenuModal: React.FC<EditorMenuModalProps> = ({
   fileName,
   onLoadTja,
   onSwitchToWorkbench,
+  onOpenTextEditor,
 }) => {
   const [activeTab, setActiveTab] = useState<'presets' | 'tja' | 'about'>('presets');
   const [tjaExportText, setTjaExportText] = useState<string>('');
@@ -179,10 +181,25 @@ export const EditorMenuModal: React.FC<EditorMenuModalProps> = ({
                 spellCheck={false}
               />
 
-              <div className="flex justify-end pt-1">
+              <div className="flex items-center justify-between pt-1">
+                {onOpenTextEditor ? (
+                  <button
+                    onClick={() => {
+                      onClose();
+                      onOpenTextEditor();
+                    }}
+                    className="px-3 py-2 bg-blue-950/70 hover:bg-blue-900 border border-blue-600/40 text-blue-300 hover:text-blue-200 text-xs font-medium rounded-lg flex items-center gap-1.5 transition-colors"
+                  >
+                    <FileCode className="w-4 h-4 text-blue-400" />
+                    <span>専用テキストエディタを開く (構文検証・同期)</span>
+                  </button>
+                ) : (
+                  <div />
+                )}
+
                 <button
                   onClick={handleApplyTjaText}
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-lg flex items-center gap-1.5"
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-colors shadow-md"
                 >
                   <Upload className="w-4 h-4" />
                   <span>このTJAテキストをエディタに反映 (parseTJA)</span>

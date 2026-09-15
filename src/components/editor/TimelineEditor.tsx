@@ -169,6 +169,8 @@ export const TimelineEditor: React.FC<TimelineEditorProps> = ({
             layout={layout}
             activeMeasureIndex={activeMeasureIndex}
             onSelectMeasure={onSelectMeasure}
+            visibleStartX={visibleStartX}
+            visibleEndX={visibleEndX}
           />
 
           {/* 3. Note Lane (virtualized for ultra-fast rendering of large charts) */}
@@ -186,6 +188,8 @@ export const TimelineEditor: React.FC<TimelineEditorProps> = ({
             course={course}
             timeline={timeline}
             layout={layout}
+            visibleStartX={visibleStartX}
+            visibleEndX={visibleEndX}
           />
 
           {/* 5. BPM Lane */}
@@ -193,10 +197,16 @@ export const TimelineEditor: React.FC<TimelineEditorProps> = ({
             course={course}
             timeline={timeline}
             layout={layout}
+            visibleStartX={visibleStartX}
+            visibleEndX={visibleEndX}
           />
 
           {/* 6. MEASURE Lane */}
-          <MeasureLane layout={layout} />
+          <MeasureLane
+            layout={layout}
+            visibleStartX={visibleStartX}
+            visibleEndX={visibleEndX}
+          />
 
           {/* 7. Shared Playhead passing through all lanes */}
           <Playhead x={playheadX} />

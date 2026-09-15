@@ -17,7 +17,17 @@ import {
   FileText,
   Pencil,
   Check,
+  FileCode,
+  Layers,
 } from 'lucide-react';
+
+const COURSE_LABELS: Record<number, string> = {
+  0: 'かんたん (Easy)',
+  1: 'ふつう (Normal)',
+  2: 'むずかしい (Hard)',
+  3: 'おに (Oni)',
+  4: '裏/Edit',
+};
 
 interface EditorHeaderProps {
   fileName: string;
@@ -32,6 +42,10 @@ interface EditorHeaderProps {
   onRedo: () => void;
   onOpenSettings: () => void;
   onOpenMenu: () => void;
+  activeCourseKey?: number;
+  availableCourseKeys?: number[];
+  onSelectCourseKey?: (key: number) => void;
+  onOpenTextEditor?: () => void;
 }
 
 /**
@@ -64,6 +78,10 @@ export const EditorHeader: React.FC<EditorHeaderProps> = ({
   onRedo,
   onOpenSettings,
   onOpenMenu,
+  activeCourseKey = 3,
+  availableCourseKeys = [3],
+  onSelectCourseKey,
+  onOpenTextEditor,
 }) => {
   const [isEditingName, setIsEditingName] = useState(false);
   const [nameInput, setNameInput] = useState(fileName);
@@ -80,8 +98,8 @@ export const EditorHeader: React.FC<EditorHeaderProps> = ({
       id="mikanotes-header"
       className="h-11 bg-[#090e18] border-b border-slate-800/80 px-3 flex items-center justify-between select-none z-30 shrink-0 text-slate-200"
     >
-      {/* Left: Brand & File name */}
-      <div className="flex items-center gap-3 min-w-0">
+      {/* Left: Brand & File name & Course selector */}
+      <div className="flex items-center gap-2 sm:gap-3 min-w-0">
         <div className="flex items-center gap-1.5">
           <span className="font-bold text-base tracking-tight text-white font-sans">
             MikaNotes
@@ -119,17 +137,38 @@ export const EditorHeader: React.FC<EditorHeaderProps> = ({
               }}
               title="Click to rename"
             >
-              <span className="font-mono text-slate-300 text-xs truncate max-w-[120px] sm:max-w-[180px]">
+              <span className="font-mono text-slate-300 text-xs truncate max-w-[100px] sm:max-w-[160px]">
                 {fileName}
               </span>
               <Pencil className="w-3 h-3 text-slate-500 group-hover:text-slate-300 opacity-80" />
             </div>
           )}
         </div>
+
+        {/* Course Selector Dropdown */}
+        {availableCourseKeys.length > 0 && onSelectCourseKey && (
+          <div className="flex items-center ml-1 sm:ml-2">
+            <div className="relative flex items-center">
+              <select
+                id="select-course-key"
+                value={activeCourseKey}
+                onChange={(e) => onSelectCourseKey(Number(e.target.value))}
+                className="bg-slate-900 hover:bg-slate-800 text-amber-300 font-medium text-[11px] px-2 py-1 rounded border border-slate-700/80 focus:outline-none focus:border-amber-500 cursor-pointer transition-colors"
+                title="コース選択 (CourseKey)"
+              >
+                {availableCourseKeys.map((cKey) => (
+                  <option key={cKey} value={cKey} className="bg-slate-900 text-white">
+                    {COURSE_LABELS[cKey] ?? `Course ${cKey}`}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Center: Play / Pause & Time readout */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2 sm:gap-3">
         <button
           id="btn-play-pause"
           onClick={onTogglePlayback}
@@ -153,8 +192,20 @@ export const EditorHeader: React.FC<EditorHeaderProps> = ({
         </div>
       </div>
 
-      {/* Right: Undo, Redo, Settings, Menu */}
-      <div className="flex items-center gap-1 sm:gap-2">
+      {/* Right: TJA Text Editor button, Undo, Redo, Settings, Menu */}
+      <div className="flex items-center gap-1 sm:gap-1.5">
+        {onOpenTextEditor && (
+          <button
+            id="btn-open-tja-editor"
+            onClick={onOpenTextEditor}
+            className="flex items-center gap-1 px-2 sm:px-2.5 py-1 rounded bg-blue-950/60 hover:bg-blue-900/60 text-blue-300 hover:text-blue-200 border border-blue-600/40 text-xs font-medium transition-all shadow-sm active:scale-95 mr-1"
+            title="TJAテキストエディタを開く (直接編集・検証・適用)"
+          >
+            <FileCode className="w-3.5 h-3.5 text-blue-400" />
+            <span className="hidden sm:inline">TJAテキスト</span>
+          </button>
+        )}
+
         <button
           id="btn-undo"
           onClick={onUndo}

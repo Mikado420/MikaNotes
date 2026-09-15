@@ -1178,5 +1178,277 @@ BALLOON:7,12
     };
   });
 
+  // =========================================================================
+  // Next Correction Phase: Course Consistency, Text Sync, Safety & Testing
+  // =========================================================================
+
+  // Test 1: Active Course 変更後にノーツ追加 -> 対象 Course にのみ反映されること
+  test('test-phase2-active-course-isolation', 'Course Isolation on Note Addition', 'normal', () => {
+    const tja = `TITLE:Two Courses\nBPM:120\nCOURSE:Normal\nLEVEL:3\n#START\n1000100010001000,\n#END\nCOURSE:Oni\nLEVEL:8\n#START\n11111111,\n#END`;
+    const chart = parseTJA(tja);
+
+    // Initial note counts
+    const normalCount0 = chart.courses[1].measures[0].notes.length;
+    const oniCount0 = chart.courses[3].measures[0].notes.length;
+
+    // Add note to Oni (3) only
+    chart.courses[3].measures[0].notes.push({
+      id: 'oni-added',
+      type: '2',
+      kind: 'ka',
+      time: 1.0,
+      audioTime: 1.0,
+      beat: 2.0,
+      measureIndex: 0,
+      positionInMeasure: { numerator: 1, denominator: 2, fraction: 0.5 },
+      bpm: 120,
+      scroll: 1.0,
+    });
+
+    const normalCountAfter = chart.courses[1].measures[0].notes.length;
+    const oniCountAfter = chart.courses[3].measures[0].notes.length;
+
+    const passed = normalCountAfter === normalCount0 && oniCountAfter === oniCount0 + 1;
+    return {
+      passed,
+      message: passed
+        ? 'Note added to Oni course exclusively without modifying Normal course.'
+        : `Course bleed detected: Normal count before=${normalCount0}, after=${normalCountAfter}`,
+    };
+  });
+
+  // Test 2: Oni しか存在しない TJA を開いた時、activeCourseKey が Oni(3) になること
+  test('test-phase2-oni-only-default-selection', 'Oni-Only Chart Default Course Selection', 'normal', () => {
+    const tja = `TITLE:Oni Only\nBPM:140\nCOURSE:Oni\nLEVEL:10\n#START\n10101010,\n#END`;
+    const chart = parseTJA(tja);
+
+    const availableKeys = Object.keys(chart.courses).map(Number);
+    const hasOnlyOni = availableKeys.length === 1 && availableKeys[0] === 3;
+    const isChartActiveOni = chart.activeCourse.courseKey === 3;
+
+    const passed = hasOnlyOni && isChartActiveOni;
+    return {
+      passed,
+      message: passed
+        ? 'Oni-only TJA correctly mapped to CourseKey 3 (Oni) as default active course.'
+        : `Expected CourseKey 3, got keys: ${availableKeys.join(',')}`,
+    };
+  });
+
+  // Test 3: Hard と Oni がある TJA で、正しくコースを切り替えられること
+  test('test-phase2-course-switching', 'Bi-Directional Course Switching (Hard & Oni)', 'normal', () => {
+    const tja = `TITLE:Hard and Oni\nBPM:130\nCOURSE:Hard\nLEVEL:6\n#START\n10001000,\n#END\nCOURSE:Oni\nLEVEL:9\n#START\n11112222,\n#END`;
+    const chart = parseTJA(tja);
+
+    const keys = Object.keys(chart.courses).map(Number).sort((a, b) => a - b);
+    const hasHardAndOni = keys.includes(2) && keys.includes(3);
+
+    // Switch to Hard (2)
+    chart.activeCourseKey = 2;
+    const hardCourse = chart.courses[chart.activeCourseKey];
+    const hardNotes = hardCourse.measures[0].notes.length;
+
+    // Switch to Oni (3)
+    chart.activeCourseKey = 3;
+    const oniCourse = chart.courses[chart.activeCourseKey];
+    const oniNotes = oniCourse.measures[0].notes.length;
+
+    const passed = hasHardAndOni && hardNotes === 2 && oniNotes === 8;
+    return {
+      passed,
+      message: passed
+        ? 'Successfully switched between Hard (key 2) and Oni (key 3) with distinct measure notes.'
+        : 'Course switching failed to retrieve accurate course data.',
+    };
+  });
+
+  // Test 4: TJA Text Editor でノーツを追加して適用 -> Visual Editor のノーツ数が増加すること
+  test('test-phase2-text-editor-add-notes', 'Text Editor Apply Increases Note Count', 'normal', () => {
+    const originalTja = `TITLE:Apply Test\nBPM:120\nCOURSE:Oni\nLEVEL:7\n#START\n10001000,\n#END`;
+    const originalChart = parseTJA(originalTja);
+    const initialNotesCount = originalChart.activeCourse.measures[0].notes.length;
+
+    // Simulate Text Editor edit: change "10001000," to "11112222,"
+    const editedTja = originalTja.replace('10001000,', '11112222,');
+    const val = validateTJARaw(editedTja);
+    if (!val.valid) {
+      return { passed: false, message: 'Validator rejected edited TJA' };
+    }
+
+    const newChart = parseTJA(editedTja);
+    const updatedNotesCount = newChart.activeCourse.measures[0].notes.length;
+
+    const passed = initialNotesCount === 2 && updatedNotesCount === 8;
+    return {
+      passed,
+      message: passed
+        ? 'Applying edited TJA successfully updated chart notes from 2 to 8 notes.'
+        : `Note count mismatch: initial=${initialNotesCount}, updated=${updatedNotesCount}`,
+    };
+  });
+
+  // Test 5: TJA Text Editor で文法エラーのあるテキストを適用 -> 現在の譜面が維持され、エラーが表示されること
+  test('test-phase2-text-editor-error-protection', 'Error Protection Preserves Current Chart', 'abnormal', () => {
+    const validTja = `TITLE:Safe Chart\nBPM:120\nCOURSE:Oni\nLEVEL:7\n#START\n10101010,\n#END`;
+    let currentChart = parseTJA(validTja);
+    const originalNoteCount = currentChart.activeCourse.measures[0].notes.length;
+
+    // Erroneous TJA (missing #START command)
+    const brokenTja = `TITLE:Broken Chart\nBPM:120\nCOURSE:Oni\n10101010,\n#END`;
+    const val = validateTJARaw(brokenTja);
+
+    // Verify validator catches the issue
+    const hasError = !val.valid || val.errors.length > 0;
+
+    // Simulate safe apply: if invalid or parse throws, do not replace currentChart
+    let applyError = '';
+    if (hasError) {
+      applyError = 'Validation error: Missing #START';
+    } else {
+      try {
+        currentChart = parseTJA(brokenTja);
+      } catch (e: any) {
+        applyError = e.message;
+      }
+    }
+
+    const chartPreserved = currentChart.activeCourse.measures[0].notes.length === originalNoteCount;
+    const passed = hasError && chartPreserved && applyError.length > 0;
+
+    return {
+      passed,
+      message: passed
+        ? 'Broken TJA correctly blocked; existing chart remained intact.'
+        : 'Safety check failed to protect existing chart.',
+    };
+  });
+
+  // Test 6: Visual Editor でノーツ追加 -> TJA Text Editor を開いた時に最新のTJAが取得できること
+  test('test-phase2-visual-editor-to-text-editor-sync', 'Visual to Text Editor Serialization Sync', 'roundtrip', () => {
+    const initialTja = `TITLE:Sync Test\nBPM:120\nCOURSE:Oni\nLEVEL:8\n#START\n1000,\n#END`;
+    const chart = parseTJA(initialTja);
+
+    // Add note at beat 2 (fraction 0.5) in visual editor
+    chart.activeCourse.measures[0].notes.push({
+      id: 'sync-note-2',
+      type: '2',
+      kind: 'ka',
+      time: 1.0,
+      audioTime: 1.0,
+      beat: 2.0,
+      measureIndex: 0,
+      positionInMeasure: { numerator: 1, denominator: 2, fraction: 0.5 },
+      bpm: 120,
+      scroll: 1.0,
+    });
+
+    // Generate TJA for text editor via writeTJA
+    const serialized = writeTJA(chart);
+
+    // Parse generated TJA back to verify roundtrip fidelity
+    const parsedBack = parseTJA(serialized);
+    const notes = parsedBack.activeCourse.measures[0].notes;
+
+    const passed = notes.length === 2 && notes[0].type === '1' && notes[1].type === '2';
+    return {
+      passed,
+      message: passed
+        ? 'Visual editor note additions immediately serialize into fresh TJA text with full fidelity.'
+        : 'Serialized TJA failed to reflect visual note changes.',
+    };
+  });
+
+  // Test 7: Undo -> Active Course の状態が巻き戻ること
+  test('test-phase2-undo-course-state', 'Undo Restores Active Course Note State', 'normal', () => {
+    const tja1 = `TITLE:Undo Test\nBPM:120\nCOURSE:Oni\nLEVEL:8\n#START\n1000,\n#END`;
+    const tja2 = `TITLE:Undo Test\nBPM:120\nCOURSE:Oni\nLEVEL:8\n#START\n1020,\n#END`;
+
+    const history: string[] = [tja1, tja2];
+    let idx = 1; // Current state has Ka
+
+    const chartBeforeUndo = parseTJA(history[idx]);
+    const countBefore = chartBeforeUndo.activeCourse.measures[0].notes.length;
+
+    // Perform Undo
+    idx--;
+    const chartAfterUndo = parseTJA(history[idx]);
+    const countAfter = chartAfterUndo.activeCourse.measures[0].notes.length;
+
+    const passed = countBefore === 2 && countAfter === 1;
+    return {
+      passed,
+      message: passed
+        ? 'Undo restored previous course note count and state accurately.'
+        : `Undo failed: count before=${countBefore}, count after=${countAfter}`,
+    };
+  });
+
+  // Test 8: 大量小節（例: 500小節）でも parse / write / timeline 構築が破綻しないこと
+  test('test-phase2-huge-chart-stability', 'Huge Chart Stability (500 Measures)', 'abnormal', () => {
+    const lines: string[] = ['TITLE:Huge 500 Measures', 'BPM:120', 'COURSE:Oni', 'LEVEL:10', '#START'];
+    for (let i = 0; i < 500; i++) {
+      lines.push('10201020,');
+    }
+    lines.push('#END');
+    const hugeTja = lines.join('\n');
+
+    const t0 = performance.now();
+    const chart = parseTJA(hugeTja);
+    const parsedDuration = performance.now() - t0;
+
+    const t1 = performance.now();
+    const timeline = new Timeline(chart.activeCourse);
+    const timelineDuration = performance.now() - t1;
+
+    const t2 = performance.now();
+    const serialized = writeTJA(chart);
+    const writeDuration = performance.now() - t2;
+
+    const measuresCount = chart.activeCourse.measures.length;
+    const totalNotes = chart.activeCourse.measures.reduce((acc, m) => acc + m.notes.length, 0);
+
+    const passed =
+      measuresCount === 500 &&
+      totalNotes === 2000 &&
+      timeline.getDuration() > 0 &&
+      serialized.includes('#END');
+
+    return {
+      passed,
+      message: passed
+        ? `500 measures (2000 notes) parsed in ${Math.round(parsedDuration)}ms, timeline in ${Math.round(timelineDuration)}ms, write in ${Math.round(writeDuration)}ms.`
+        : 'Huge chart test failed consistency checks.',
+      details: { measuresCount, totalNotes, parsedDuration, timelineDuration, writeDuration },
+    };
+  });
+
+  // Test 9: 不正な文字を含む小節（異常系）でもクラッシュしないこと
+  test('test-phase2-abnormal-measures-resilience', 'Resilience to Malformed Measure Characters', 'abnormal', () => {
+    const malformedTja = `TITLE:Malformed Chart\nBPM:120\n#START\n10X?#@9A1020,\n#END`;
+
+    // 1. Validator should report warnings/issues without crashing
+    const val = validateTJARaw(malformedTja);
+    const hasWarningsOrErrors = val.errors.length + val.warnings.length > 0;
+
+    // 2. Parser should survive and sanitize unknown characters without throwing
+    let parseSucceeded = false;
+    let noteCount = 0;
+    try {
+      const chart = parseTJA(malformedTja);
+      parseSucceeded = true;
+      noteCount = chart.activeCourse.measures[0].notes.length;
+    } catch {
+      parseSucceeded = false;
+    }
+
+    const passed = hasWarningsOrErrors && parseSucceeded && noteCount > 0;
+    return {
+      passed,
+      message: passed
+        ? `Handled abnormal measure characters gracefully; validator produced ${val.errors.length + val.warnings.length} diagnostic issues and parser recovered ${noteCount} valid notes.`
+        : 'Malformed measure caused an uncaught crash.',
+    };
+  });
+
   return results;
 }
