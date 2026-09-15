@@ -24,12 +24,24 @@ export function calculateTimelineLayout(
   let currentX = LANE_PADDING_LEFT;
   const measureLayouts: MeasureLayoutInfo[] = [];
 
+  // Visual Editor protection: clamp max measure display width to 8000px
+  // Prevents DOM/layout crashes on extreme #MEASURE (e.g. 99999999/1) while preserving Core exact data
+  const MAX_MEASURE_WIDTH = 8000;
+
   for (let i = 0; i < course.measures.length; i++) {
     const m = course.measures[i];
     // Calculate effective beats in this measure based on time signature numerator/denominator
     // e.g. 4/4 = 4 beats, 3/4 = 3 beats, 7/8 = 3.5 beats
-    const beats = (m.numerator * 4) / m.denominator;
-    const width = Math.max(40, beats * beatWidth);
+    let beats = 4;
+    if (m.denominator > 0 && isFinite(m.numerator) && isFinite(m.denominator)) {
+      beats = (m.numerator * 4) / m.denominator;
+    }
+    if (isNaN(beats) || !isFinite(beats) || beats <= 0) {
+      beats = 4;
+    }
+
+    const rawWidth = beats * beatWidth;
+    const width = Math.min(MAX_MEASURE_WIDTH, Math.max(40, isFinite(rawWidth) ? rawWidth : 40));
 
     measureLayouts.push({
       index: i,
@@ -54,6 +66,45 @@ export function calculateTimelineLayout(
     baseBeatWidth: beatWidth,
     zoomFactor,
   };
+}
+
+/**
+ * Binary search to find the MeasureLayoutInfo containing or nearest to timeline X coordinate.
+ * Operates in O(log N) time complexity.
+ */
+export function findMeasureLayoutAtX(
+  x: number,
+  measures: MeasureLayoutInfo[]
+): MeasureLayoutInfo | null {
+  const n = measures.length;
+  if (n === 0) return null;
+
+  if (x < measures[0].startX) {
+    return measures[0];
+  }
+  if (x >= measures[n - 1].endX) {
+    return measures[n - 1];
+  }
+
+  let low = 0;
+  let high = n - 1;
+
+  while (low <= high) {
+    const mid = (low + high) >> 1;
+    const m = measures[mid];
+
+    if (x < m.startX) {
+      high = mid - 1;
+    } else if (x >= m.endX) {
+      low = mid + 1;
+    } else {
+      // x >= m.startX && x < m.endX
+      return m;
+    }
+  }
+
+  // Fallback boundary clamping
+  return measures[Math.min(n - 1, Math.max(0, low))];
 }
 
 /**
@@ -101,27 +152,24 @@ export function timelineXToTime(
   const last = layout.measures[layout.measures.length - 1];
   if (x >= last.endX) return last.startTime + last.duration;
 
-  // Find which measure contains this X
-  for (const mLayout of layout.measures) {
-    if (x >= mLayout.startX && x < mLayout.endX) {
-      const rawProgress = (x - mLayout.startX) / mLayout.width;
-      const clampedProgress = Math.max(0, Math.min(1, rawProgress));
+  // Find which measure contains this X via binary search O(log N)
+  const mLayout = findMeasureLayoutAtX(x, layout.measures);
+  if (!mLayout) return 0;
 
-      // Construct RationalPosition for high precision
-      const highRes = 1920;
-      const step = Math.round(clampedProgress * highRes);
-      const g = gcd(step, highRes);
-      const rational: RationalPosition = {
-        numerator: step / g,
-        denominator: highRes / g,
-        fraction: clampedProgress,
-      };
+  const rawProgress = (x - mLayout.startX) / mLayout.width;
+  const clampedProgress = Math.max(0, Math.min(1, rawProgress));
 
-      return timeline.positionToTime(mLayout.measure, rational);
-    }
-  }
+  // Construct RationalPosition for high precision
+  const highRes = 1920;
+  const step = Math.round(clampedProgress * highRes);
+  const g = gcd(step, highRes);
+  const rational: RationalPosition = {
+    numerator: step / g,
+    denominator: highRes / g,
+    fraction: clampedProgress,
+  };
 
-  return 0;
+  return timeline.positionToTime(mLayout.measure, rational);
 }
 
 /**
@@ -141,22 +189,9 @@ export function snapTimelineXToGrid(
 } | null {
   if (layout.measures.length === 0) return null;
 
-  // Find measure containing X (or nearest)
-  let targetLayout: MeasureLayoutInfo | null = null;
-  for (const m of layout.measures) {
-    if (x >= m.startX && x < m.endX) {
-      targetLayout = m;
-      break;
-    }
-  }
-
-  if (!targetLayout) {
-    if (x < layout.measures[0].startX) {
-      targetLayout = layout.measures[0];
-    } else {
-      targetLayout = layout.measures[layout.measures.length - 1];
-    }
-  }
+  // Find measure containing X via binary search O(log N)
+  const targetLayout = findMeasureLayoutAtX(x, layout.measures);
+  if (!targetLayout) return null;
 
   const relX = Math.max(0, Math.min(targetLayout.width, x - targetLayout.startX));
   const rawProgress = relX / targetLayout.width;

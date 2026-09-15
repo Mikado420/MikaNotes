@@ -9,8 +9,14 @@ import { writeTJA } from './writer';
 import { scanTJAInfo } from './scanner';
 import { validateTJARaw } from './validator';
 import { Timeline } from './timeline';
-import { approxEqual } from './math';
-import { snapTimelineXToGrid, calculateTimelineLayout } from '../editor/coordinate-mapping';
+import { approxEqual, isSameRationalPosition } from './math';
+import {
+  snapTimelineXToGrid,
+  calculateTimelineLayout,
+  findMeasureLayoutAtX,
+  timeToTimelineX,
+  timelineXToTime,
+} from '../editor/coordinate-mapping';
 import { GridDivision } from '../editor/editor-types';
 
 export interface TestCaseResult {
@@ -691,6 +697,130 @@ BALLOON:7,12
     return {
       passed: true,
       message: 'MEASURE changes at measure start successfully update measure model and duration without time desync.',
+    };
+  });
+
+  // 23. Binary Search for X Coordinate & Dual-Way Mapping Consistency
+  test('test-binary-search-and-dualway-mapping', 'Binary Search for X Coordinate & Dual-Way Mapping Consistency', 'timing', () => {
+    const rawTja = `TITLE:Complex Test\nBPM:120\n#START\n1000,\n#MEASURE 3/4\n#BPMCHANGE 180\n100,\n#MEASURE 6/8\n#DELAY 0.5\n100000,\n#MEASURE 7/8\n1000000,\n#END`;
+    const chart = parseTJA(rawTja);
+    const course = chart.activeCourse;
+    const timeline = new Timeline(course);
+    const layout = calculateTimelineLayout(course, 100);
+
+    // 1. Verify findMeasureLayoutAtX boundary conditions
+    // Boundary a: Empty layout
+    if (findMeasureLayoutAtX(100, []) !== null) {
+      return { passed: false, message: 'Empty layout should return null' };
+    }
+    // Boundary b: Left of measure 0 (x < LANE_PADDING_LEFT)
+    const mLeft = findMeasureLayoutAtX(0, layout.measures);
+    if (!mLeft || mLeft.index !== 0) {
+      return { passed: false, message: 'Left of measure 0 should clamp to measure 0' };
+    }
+    // Boundary c: Right of last measure
+    const mLast = findMeasureLayoutAtX(layout.totalWidth + 1000, layout.measures);
+    if (!mLast || mLast.index !== layout.measures.length - 1) {
+      return { passed: false, message: 'Right of last measure should clamp to last measure' };
+    }
+    // Boundary d: Exact measure boundary
+    for (let i = 0; i < layout.measures.length; i++) {
+      const ml = layout.measures[i];
+      const foundAtStart = findMeasureLayoutAtX(ml.startX, layout.measures);
+      if (!foundAtStart || foundAtStart.index !== i) {
+        return { passed: false, message: `Measure ${i} exact startX lookup failed` };
+      }
+      const foundAtMid = findMeasureLayoutAtX(ml.startX + ml.width * 0.5, layout.measures);
+      if (!foundAtMid || foundAtMid.index !== i) {
+        return { passed: false, message: `Measure ${i} mid-point lookup failed` };
+      }
+      const foundAtPreEnd = findMeasureLayoutAtX(ml.endX - 0.01, layout.measures);
+      if (!foundAtPreEnd || foundAtPreEnd.index !== i) {
+        return { passed: false, message: `Measure ${i} near end lookup failed` };
+      }
+    }
+
+    // 2. Verify Dual-Way Mapping Consistency: X -> Time -> X and Time -> X -> Time
+    for (let i = 0; i < layout.measures.length; i++) {
+      const ml = layout.measures[i];
+      const testFractions = [0, 0.25, 0.5, 0.75, 1.0];
+      for (const frac of testFractions) {
+        const testX = ml.startX + frac * ml.width;
+        const timeFromX = timelineXToTime(testX, timeline, layout);
+        const xFromTime = timeToTimelineX(timeFromX, timeline, layout);
+
+        if (Math.abs(testX - xFromTime) > 0.5) { // Sub-pixel precision within 0.5px
+          return {
+            passed: false,
+            message: `Dual-way mismatch in measure ${i} (frac ${frac}): testX=${testX.toFixed(2)}, xFromTime=${xFromTime.toFixed(2)}`,
+          };
+        }
+      }
+    }
+
+    return {
+      passed: true,
+      message: 'Binary search O(log N) passed all boundary tests and dual-way X <-> Time consistency verified across 4/4, 3/4, 6/8, 7/8, BPMCHANGE, and DELAY.',
+    };
+  });
+
+  // 24. Normalized RationalPosition Note Deletion & Replacement
+  test('test-rational-position-normalization', 'Normalized RationalPosition Identity (1/2 === 2/4 === 4/8)', 'normal', () => {
+    // Exact fractional equivalence tests
+    const p1_2 = { numerator: 1, denominator: 2, fraction: 0.5 };
+    const p2_4 = { numerator: 2, denominator: 4, fraction: 0.5 };
+    const p4_8 = { numerator: 4, denominator: 8, fraction: 0.5 };
+    const p3_16 = { numerator: 3, denominator: 16, fraction: 0.1875 };
+    const p6_32 = { numerator: 6, denominator: 32, fraction: 0.1875 };
+    const p1_4 = { numerator: 1, denominator: 4, fraction: 0.25 };
+
+    if (!isSameRationalPosition(p1_2, p2_4)) {
+      return { passed: false, message: '1/2 and 2/4 failed equivalence test' };
+    }
+    if (!isSameRationalPosition(p2_4, p4_8)) {
+      return { passed: false, message: '2/4 and 4/8 failed equivalence test' };
+    }
+    if (!isSameRationalPosition(p3_16, p6_32)) {
+      return { passed: false, message: '3/16 and 6/32 failed equivalence test' };
+    }
+    if (isSameRationalPosition(p1_4, p1_2)) {
+      return { passed: false, message: '1/4 and 1/2 should NOT be equivalent' };
+    }
+
+    return {
+      passed: true,
+      message: 'Normalized RationalPosition equivalence verified mathematically across varying denominators.',
+    };
+  });
+
+  // 25. Extreme #MEASURE Safety (Visual Layout Clamping & Core Preservation)
+  test('test-extreme-measure-safety', 'Extreme #MEASURE Safety (UI Clamping & Core Exact Preservation)', 'abnormal', () => {
+    const rawTja = `TITLE:Extreme Measure Test\nBPM:120\n#START\n#MEASURE 99999999/1\n1000,\n#END`;
+    const chart = parseTJA(rawTja);
+    const course = chart.activeCourse;
+    const m = course.measures[0];
+
+    // 1. Verify Core preserves exact numerator/denominator
+    if (m.numerator !== 99999999 || m.denominator !== 1) {
+      return { passed: false, message: 'Core MeasureModel failed to preserve exact 99999999/1' };
+    }
+
+    // 2. Verify Visual Layout Clamping protects the DOM
+    const layout = calculateTimelineLayout(course, 100);
+    const mLayout = layout.measures[0];
+    if (mLayout.width > 8000) {
+      return { passed: false, message: `Visual width exceeded safety clamp (got ${mLayout.width}px)` };
+    }
+
+    // 3. Verify TJA Writer outputs exact original #MEASURE
+    const writtenTja = writeTJA(chart);
+    if (!writtenTja.includes('#MEASURE 99999999/1')) {
+      return { passed: false, message: 'TJA Writer lost original #MEASURE 99999999/1' };
+    }
+
+    return {
+      passed: true,
+      message: 'Extreme #MEASURE safely clamped in Visual Layout to 8000px while 100% preserving Core values and TJA Writer fidelity.',
     };
   });
 

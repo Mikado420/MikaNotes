@@ -79,3 +79,30 @@ export function formatBpm(bpm: number): string {
   const rounded = Math.round(bpm * 10000) / 10000;
   return rounded.toString();
 }
+
+/**
+ * Test whether two rational positions represent the exact same position in a measure.
+ * Prioritizes normalized rational cross-multiplication (e.g. 1/2 === 2/4 === 4/8),
+ * falling back to epsilon comparison of fraction.
+ */
+export function isSameRationalPosition(
+  a: { numerator?: number; denominator?: number; fraction?: number },
+  b: { numerator?: number; denominator?: number; fraction?: number }
+): boolean {
+  if (
+    typeof a.numerator === 'number' &&
+    typeof a.denominator === 'number' &&
+    typeof b.numerator === 'number' &&
+    typeof b.denominator === 'number' &&
+    a.denominator > 0 &&
+    b.denominator > 0
+  ) {
+    // a.num / a.den === b.num / b.den <=> a.num * b.den === b.num * a.den
+    return Math.round(a.numerator) * Math.round(b.denominator) === Math.round(b.numerator) * Math.round(a.denominator);
+  }
+
+  const fracA = typeof a.fraction === 'number' ? a.fraction : (a.numerator ?? 0) / (a.denominator || 1);
+  const fracB = typeof b.fraction === 'number' ? b.fraction : (b.numerator ?? 0) / (b.denominator || 1);
+  return approxEqual(fracA, fracB, 0.0001);
+}
+

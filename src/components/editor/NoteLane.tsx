@@ -43,6 +43,75 @@ export const NoteLane: React.FC<NoteLaneProps> = ({
     (m) => m.endX >= minVisibleX && m.startX <= maxVisibleX
   );
 
+  // Visible Rolls: interval intersection check (rollStartX <= maxVisibleX && rollEndX >= minVisibleX)
+  const visibleRolls = React.useMemo(() => {
+    if (course.rolls.length === 0) return [];
+    const results: { roll: RollModel; startX: number; endX: number; key: number }[] = [];
+    for (let rIdx = 0; rIdx < course.rolls.length; rIdx++) {
+      const roll = course.rolls[rIdx];
+      const startMLayout = layout.measures[roll.startMeasureIndex];
+      const endMLayout = layout.measures[roll.endMeasureIndex];
+      if (!startMLayout || !endMLayout) continue;
+
+      // Fast check using measure boundaries
+      if (endMLayout.endX < minVisibleX || startMLayout.startX > maxVisibleX) {
+        continue;
+      }
+
+      // Exact pixel boundary check
+      const startX = getNoteX(roll.startPosition, startMLayout);
+      const endX = getNoteX(roll.endPosition, endMLayout);
+      if (startX <= maxVisibleX && endX >= minVisibleX) {
+        results.push({ roll, startX, endX, key: rIdx });
+      }
+    }
+    return results;
+  }, [course.rolls, layout.measures, minVisibleX, maxVisibleX]);
+
+  // Visible Balloons: interval intersection check (balloonStartX <= maxVisibleX && balloonEndX >= minVisibleX)
+  const visibleBalloons = React.useMemo(() => {
+    if (course.balloons.length === 0) return [];
+    const results: { balloon: BalloonModel; startX: number; endX: number; key: number }[] = [];
+    for (let bIdx = 0; bIdx < course.balloons.length; bIdx++) {
+      const balloon = course.balloons[bIdx];
+      const startMLayout = layout.measures[balloon.startMeasureIndex];
+      const endMLayout = layout.measures[balloon.endMeasureIndex];
+      if (!startMLayout || !endMLayout) continue;
+
+      if (endMLayout.endX < minVisibleX || startMLayout.startX > maxVisibleX) {
+        continue;
+      }
+
+      const startX = getNoteX(balloon.startPosition, startMLayout);
+      const endX = getNoteX(balloon.endPosition, endMLayout);
+      if (startX <= maxVisibleX && endX >= minVisibleX) {
+        results.push({ balloon, startX, endX, key: bIdx });
+      }
+    }
+    return results;
+  }, [course.balloons, layout.measures, minVisibleX, maxVisibleX]);
+
+  // Map end markers by measureIndex for O(1) lookup during measure iteration
+  const rollEndsByMeasure = React.useMemo(() => {
+    const map = new Map<number, RollModel[]>();
+    for (const r of course.rolls) {
+      const list = map.get(r.endMeasureIndex);
+      if (list) list.push(r);
+      else map.set(r.endMeasureIndex, [r]);
+    }
+    return map;
+  }, [course.rolls]);
+
+  const balloonEndsByMeasure = React.useMemo(() => {
+    const map = new Map<number, BalloonModel[]>();
+    for (const b of course.balloons) {
+      const list = map.get(b.endMeasureIndex);
+      if (list) list.push(b);
+      else map.set(b.endMeasureIndex, [b]);
+    }
+    return map;
+  }, [course.balloons]);
+
   return (
     <div
       id="note-lane"
@@ -101,15 +170,7 @@ export const NoteLane: React.FC<NoteLaneProps> = ({
         })}
 
         {/* Render Rolls and Big Rolls as horizontal capsules / bands (visible only) */}
-        {course.rolls.map((roll, rIdx) => {
-          const startMLayout = layout.measures[roll.startMeasureIndex];
-          const endMLayout = layout.measures[roll.endMeasureIndex];
-          if (!startMLayout || !endMLayout) return null;
-
-          const startX = getNoteX(roll.startPosition, startMLayout);
-          const endX = getNoteX(roll.endPosition, endMLayout);
-          if (endX < minVisibleX || startX > maxVisibleX) return null;
-
+        {visibleRolls.map(({ roll, startX, endX, key }) => {
           const width = Math.max(16, endX - startX);
           const isBig = roll.rawType === '6';
           const height = isBig ? 42 : 32;
@@ -117,7 +178,7 @@ export const NoteLane: React.FC<NoteLaneProps> = ({
           const color = isBig ? '#f97316' : '#eab308'; // Orange for Big Roll, Yellow for Roll
 
           return (
-            <g key={`roll-${rIdx}`}>
+            <g key={`roll-${key}`}>
               <rect
                 x={startX}
                 y={y}
@@ -134,21 +195,13 @@ export const NoteLane: React.FC<NoteLaneProps> = ({
         })}
 
         {/* Render Balloons (visible only) */}
-        {course.balloons.map((balloon, bIdx) => {
-          const startMLayout = layout.measures[balloon.startMeasureIndex];
-          const endMLayout = layout.measures[balloon.endMeasureIndex];
-          if (!startMLayout || !endMLayout) return null;
-
-          const startX = getNoteX(balloon.startPosition, startMLayout);
-          const endX = getNoteX(balloon.endPosition, endMLayout);
-          if (endX < minVisibleX || startX > maxVisibleX) return null;
-
+        {visibleBalloons.map(({ startX, endX, key }) => {
           const width = Math.max(16, endX - startX);
           const height = 30;
           const y = 56 - height / 2;
 
           return (
-            <g key={`balloon-${bIdx}`}>
+            <g key={`balloon-${key}`}>
               <rect
                 x={startX}
                 y={y}
@@ -227,13 +280,9 @@ export const NoteLane: React.FC<NoteLaneProps> = ({
 
       {/* Hexagonal End Markers (Note 8: roll/balloon end) as seen in reference image (visible measures only) */}
       {visibleMeasures.map((mLayout) => {
-        // Find if any events or roll ends exist in this measure
-        const rollEndsInMeasure = course.rolls.filter(
-          (r) => r.endMeasureIndex === mLayout.index
-        );
-        const balloonEndsInMeasure = course.balloons.filter(
-          (b) => b.endMeasureIndex === mLayout.index
-        );
+        // Fast O(1) retrieval of roll and balloon ends in this measure
+        const rollEndsInMeasure = rollEndsByMeasure.get(mLayout.index) || [];
+        const balloonEndsInMeasure = balloonEndsByMeasure.get(mLayout.index) || [];
 
         return [...rollEndsInMeasure, ...balloonEndsInMeasure].map((item, idx) => {
           const endX = getNoteX(item.endPosition, mLayout);

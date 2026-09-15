@@ -12,6 +12,7 @@ import {
   NoteType,
   RationalPosition,
   Timeline,
+  isSameRationalPosition,
   parseTJA,
   writeTJA,
 } from '../core';
@@ -342,22 +343,14 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
 
             let updatedNotes: NoteModel[];
             if (selectedNoteTool === 'erase') {
-              // Remove any note at this position
+              // Remove any note at this exact rational position
               updatedNotes = m.notes.filter(
-                (n) =>
-                  !(
-                    n.positionInMeasure.numerator === rational.numerator &&
-                    n.positionInMeasure.denominator === rational.denominator
-                  ) && Math.abs(n.positionInMeasure.fraction - rational.fraction) > 0.0001
+                (n) => !isSameRationalPosition(n.positionInMeasure, rational)
               );
             } else if (['1', '2', '3', '4'].includes(selectedNoteTool)) {
               // Add or replace note
               const filtered = m.notes.filter(
-                (n) =>
-                  !(
-                    n.positionInMeasure.numerator === rational.numerator &&
-                    n.positionInMeasure.denominator === rational.denominator
-                  ) && Math.abs(n.positionInMeasure.fraction - rational.fraction) > 0.0001
+                (n) => !isSameRationalPosition(n.positionInMeasure, rational)
               );
 
               const kindMap: Record<string, NoteType> = {
