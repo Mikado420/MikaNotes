@@ -1,0 +1,234 @@
+/**
+ * MikaNotes TJA Core - Timeline Engine & Search API
+ * Phase 1 / Phase 2 query API for time, beats, measures, notes, and events
+ */
+
+import { CourseModel, MeasureModel, NoteModel, RollModel, BalloonModel, CommandModel } from './types';
+import { approxEqual, EPSILON } from './math';
+
+export class Timeline {
+  private course: CourseModel;
+  private sortedNotes: NoteModel[];
+  private sortedEvents: CommandModel[];
+  private sortedMeasures: MeasureModel[];
+
+  constructor(course: CourseModel) {
+    this.course = course;
+    this.sortedNotes = [...course.notes].sort((a, b) => a.time - b.time);
+    this.sortedEvents = [...course.events].sort((a, b) => a.time - b.time || a.sourceOrder - b.sourceOrder);
+    this.sortedMeasures = [...course.measures].sort((a, b) => a.startTime - b.startTime);
+  }
+
+  /**
+   * Get the total duration of the course in seconds
+   */
+  public getDuration(): number {
+    return this.course.duration;
+  }
+
+  /**
+   * Get all measures
+   */
+  public getMeasures(): MeasureModel[] {
+    return this.course.measures;
+  }
+
+  /**
+   * Get all regular hit notes (1, 2, 3, 4)
+   */
+  public getNotes(): NoteModel[] {
+    return this.sortedNotes;
+  }
+
+  /**
+   * Get all rolls (5, 6)
+   */
+  public getRolls(): RollModel[] {
+    return this.course.rolls;
+  }
+
+  /**
+   * Get all balloons (7)
+   */
+  public getBalloons(): BalloonModel[] {
+    return this.course.balloons;
+  }
+
+  /**
+   * Get all events/commands
+   */
+  public getEvents(): CommandModel[] {
+    return this.sortedEvents;
+  }
+
+  /**
+   * Get measure at a specific time in seconds
+   */
+  public getMeasureAtTime(time: number): MeasureModel | null {
+    if (this.sortedMeasures.length === 0) return null;
+    if (time < this.sortedMeasures[0].startTime) return this.sortedMeasures[0];
+
+    // Binary search for measure
+    let low = 0;
+    let high = this.sortedMeasures.length - 1;
+    let result: MeasureModel | null = null;
+
+    while (low <= high) {
+      const mid = Math.floor((low + high) / 2);
+      const m = this.sortedMeasures[mid];
+      if (time >= m.startTime - EPSILON && time < m.endTime - EPSILON) {
+        return m;
+      }
+      if (time < m.startTime) {
+        high = mid - 1;
+      } else {
+        result = m;
+        low = mid + 1;
+      }
+    }
+
+    return result || this.sortedMeasures[this.sortedMeasures.length - 1];
+  }
+
+  /**
+   * Get measure by its zero-based index
+   */
+  public getMeasureByIndex(index: number): MeasureModel | null {
+    if (index >= 0 && index < this.course.measures.length) {
+      return this.course.measures[index];
+    }
+    return null;
+  }
+
+  /**
+   * Get all notes within a time range [startTime, endTime] (inclusive)
+   */
+  public getNotesInRange(startTime: number, endTime: number): NoteModel[] {
+    if (startTime > endTime) return [];
+    const minT = startTime - EPSILON;
+    const maxT = endTime + EPSILON;
+
+    // Fast binary search to find start index
+    let low = 0;
+    let high = this.sortedNotes.length - 1;
+    let startIdx = this.sortedNotes.length;
+
+    while (low <= high) {
+      const mid = Math.floor((low + high) / 2);
+      if (this.sortedNotes[mid].time >= minT) {
+        startIdx = mid;
+        high = mid - 1;
+      } else {
+        low = mid + 1;
+      }
+    }
+
+    const results: NoteModel[] = [];
+    for (let i = startIdx; i < this.sortedNotes.length; i++) {
+      const n = this.sortedNotes[i];
+      if (n.time > maxT) break;
+      results.push(n);
+    }
+    return results;
+  }
+
+  /**
+   * Get all rolls and balloons active or overlapping within [startTime, endTime]
+   */
+  public getRollsInRange(startTime: number, endTime: number): (RollModel | BalloonModel)[] {
+    const results: (RollModel | BalloonModel)[] = [];
+    const all = [...this.course.rolls, ...this.course.balloons];
+
+    for (const r of all) {
+      if (r.endTime >= startTime - EPSILON && r.startTime <= endTime + EPSILON) {
+        results.push(r);
+      }
+    }
+    return results.sort((a, b) => a.startTime - b.startTime);
+  }
+
+  /**
+   * Get events occurring at a specific time (with tolerance)
+   */
+  public getEventsAtTime(time: number, tolerance: number = 0.001): CommandModel[] {
+    return this.sortedEvents.filter(e => Math.abs(e.time - time) <= tolerance);
+  }
+
+  /**
+   * Check if Gogo Time is active at a given time
+   */
+  public getGogoStateAtTime(time: number): boolean {
+    for (const range of this.course.gogoRanges) {
+      if (time >= range.startTime - EPSILON && time < range.endTime - EPSILON) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Get the active BPM at a given time
+   */
+  public getBpmAtTime(time: number): number {
+    let currentBpm = this.course.headers.bpm || 120;
+    for (const e of this.sortedEvents) {
+      if (e.name === 'BPMCHANGE' && e.time <= time + EPSILON) {
+        const val = parseFloat(e.value);
+        if (!isNaN(val) && val > 0) currentBpm = val;
+      }
+    }
+    return currentBpm;
+  }
+
+  /**
+   * Get active scroll speed at a given time
+   */
+  public getScrollAtTime(time: number): { scroll: number; scrollY: number } {
+    let scroll = 1.0;
+    let scrollY = 0.0;
+    for (const e of this.sortedEvents) {
+      if (e.name === 'SCROLL' && e.time <= time + EPSILON) {
+        const parts = e.value.split(/\s+/);
+        const s = parseFloat(parts[0]);
+        if (!isNaN(s)) scroll = s;
+        if (parts[1]) {
+          const sy = parseFloat(parts[1]);
+          if (!isNaN(sy)) scrollY = sy;
+        }
+      }
+    }
+    return { scroll, scrollY };
+  }
+
+  /**
+   * Convert chart time (seconds) to beat position (quarter notes)
+   */
+  public timeToBeat(time: number): number {
+    const measure = this.getMeasureAtTime(time);
+    if (!measure) return 0;
+    const progress = measure.duration > 0 ? (time - measure.startTime) / measure.duration : 0;
+    const beatsInMeasure = (measure.numerator / measure.denominator) * 4;
+    return measure.startBeat + progress * beatsInMeasure;
+  }
+
+  /**
+   * Convert beat position to chart time (seconds)
+   */
+  public beatToTime(beat: number): number {
+    for (const m of this.sortedMeasures) {
+      if (beat >= m.startBeat - EPSILON && beat <= m.endBeat + EPSILON) {
+        const beatsInMeasure = (m.numerator / m.denominator) * 4;
+        const progress = beatsInMeasure > 0 ? (beat - m.startBeat) / beatsInMeasure : 0;
+        return m.startTime + progress * m.duration;
+      }
+    }
+    // Fallback: estimate from last measure or 120 bpm
+    if (this.sortedMeasures.length > 0) {
+      const last = this.sortedMeasures[this.sortedMeasures.length - 1];
+      const extraBeats = beat - last.endBeat;
+      const bpm = this.getBpmAtTime(last.endTime);
+      return last.endTime + (extraBeats / bpm) * 60;
+    }
+    return (beat / 120) * 60;
+  }
+}

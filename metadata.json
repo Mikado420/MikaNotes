@@ -1,0 +1,6 @@
+{
+  "name": "MikaNotes",
+  "description": "TJA Core and Chart Data Infrastructure for MikaNotes (Phase 1)",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
