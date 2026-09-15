@@ -73,9 +73,7 @@ export const EditorShell: React.FC<EditorShellProps> = ({
         selectedTool={editor.selectedNoteTool}
         onSelectTool={editor.setSelectedNoteTool}
         selectedGrid={editor.selectedGrid}
-        customGridDiv={editor.customGridDiv}
         onSelectGrid={editor.setSelectedGrid}
-        onChangeCustomGrid={editor.setCustomGridDiv}
         gogoMode={editor.gogoMode}
         onChangeGogoMode={editor.setGogoMode}
         onAddGogo={() => editor.insertGogoDirect('GOGOSTART')}

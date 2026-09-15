@@ -51,7 +51,6 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
   const [selectedTab, setSelectedTab] = useState<EditorTab>('note');
   const [selectedNoteTool, setSelectedNoteTool] = useState<NoteToolType>('1'); // Default Don
   const [selectedGrid, setSelectedGrid] = useState<GridDivision>(16); // Default 16
-  const [customGridDiv, setCustomGridDiv] = useState<number>(16);
   const [selectedMeasureForEdit, setSelectedMeasureForEdit] = useState<number | null>(null);
 
   // Auxiliary tool parameters for GOGO, BPM, and MEASURE
@@ -319,8 +318,7 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
   // Handle clicking / tapping on the timeline to place or erase notes or insert commands
   const handleTimelineTap = useCallback(
     (timelineX: number) => {
-      const effectiveGrid = selectedGrid === 'free' ? 'free' : customGridDiv;
-      const snapResult = snapTimelineXToGrid(timelineX, timeline, timelineLayout, effectiveGrid);
+      const snapResult = snapTimelineXToGrid(timelineX, timeline, timelineLayout, selectedGrid);
       if (!snapResult) return;
 
       const { measureIndex, rational, time } = snapResult;
@@ -426,10 +424,13 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
           insertCommandAtPosition('BPMCHANGE', String(bpmInput), measureIndex, rational, time);
         }
       }
-      // 4. MEASURE Tab: Insert #MEASURE at snapped position
+      // 4. MEASURE Tab: Insert #MEASURE strictly at measure start position
       else if (selectedTab === 'measure') {
         if (measureInput && measureInput.includes('/')) {
-          insertCommandAtPosition('MEASURE', measureInput, measureIndex, rational, time);
+          const targetMeasure = currentCourse.measures[measureIndex];
+          const measureStartRational: RationalPosition = { numerator: 0, denominator: 1, fraction: 0 };
+          setCurrentTime(targetMeasure.startTime);
+          insertCommandAtPosition('MEASURE', measureInput, measureIndex, measureStartRational, targetMeasure.startTime);
         }
       }
     },
@@ -439,7 +440,6 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
       selectedTab,
       selectedNoteTool,
       selectedGrid,
-      customGridDiv,
       timeline,
       timelineLayout,
       gogoMode,
@@ -520,7 +520,6 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
     selectedTab,
     selectedNoteTool,
     selectedGrid,
-    customGridDiv,
     activeMeasureIndex,
     selectedMeasureForEdit,
     fileName,
@@ -540,7 +539,6 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
     setSelectedTab,
     setSelectedNoteTool,
     setSelectedGrid,
-    setCustomGridDiv,
     setFileName,
     handleTimelineTap,
     insertCommandAtPosition,

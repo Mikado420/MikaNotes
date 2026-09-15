@@ -16,7 +16,7 @@ export type NoteToolType =
   | '7' // 風船 (Balloon)
   | 'erase'; // 消去
 
-export type GridDivision = 4 | 8 | 12 | 16 | 20 | 24 | 32 | 48 | 'free';
+export type GridDivision = 4 | 8 | 12 | 16 | 20 | 24 | 32 | 48;
 
 export interface EditorUIState {
   currentTime: number;
@@ -28,7 +28,6 @@ export interface EditorUIState {
   selectedTab: EditorTab;
   selectedNoteTool: NoteToolType;
   selectedGrid: GridDivision;
-  customGridDiv: number;
   activeMeasureIndex: number;
   fileName: string;
   isDraggingPlayhead: boolean;

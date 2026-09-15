@@ -6,7 +6,7 @@
 
 import { CourseModel, MeasureModel, RationalPosition, Timeline } from '../core';
 import { gcd } from '../core/math';
-import { MeasureLayoutInfo, TimelineLayout } from './editor-types';
+import { MeasureLayoutInfo, TimelineLayout, GridDivision } from './editor-types';
 
 export const BASE_BEAT_WIDTH = 72; // Width of 1 beat (quarter note) in pixels at 100% zoom
 export const LANE_PADDING_LEFT = 48; // Left offset for visual margin before Measure 0
@@ -131,7 +131,7 @@ export function snapTimelineXToGrid(
   x: number,
   timeline: Timeline,
   layout: TimelineLayout,
-  gridDivision: number | 'free'
+  gridDivision: GridDivision
 ): {
   measure: MeasureModel | null;
   measureIndex: number;
@@ -161,28 +161,13 @@ export function snapTimelineXToGrid(
   const relX = Math.max(0, Math.min(targetLayout.width, x - targetLayout.startX));
   const rawProgress = relX / targetLayout.width;
 
-  let numerator = 0;
-  let denominator = 16;
-  let fraction = 0;
-
-  if (gridDivision === 'free') {
-    // In free mode, use a high-resolution grid (1920 = LCM(64, 48, 20...))
-    const highRes = 1920;
-    const step = Math.round(rawProgress * highRes);
-    const clampedStep = Math.min(highRes - 1, Math.max(0, step));
-    const g = gcd(clampedStep, highRes);
-    numerator = clampedStep / g;
-    denominator = highRes / g;
-    fraction = numerator / denominator;
-  } else {
-    const div = typeof gridDivision === 'number' && gridDivision > 0 ? gridDivision : 16;
-    const step = Math.round(rawProgress * div);
-    const clampedStep = Math.min(div - 1, Math.max(0, step));
-    const g = gcd(clampedStep, div);
-    numerator = clampedStep / g;
-    denominator = div / g;
-    fraction = numerator / denominator;
-  }
+  const div = gridDivision;
+  const step = Math.round(rawProgress * div);
+  const clampedStep = Math.min(div - 1, Math.max(0, step));
+  const g = gcd(clampedStep, div);
+  const numerator = clampedStep / g;
+  const denominator = div / g;
+  const fraction = numerator / denominator;
 
   const rational: RationalPosition = {
     numerator,

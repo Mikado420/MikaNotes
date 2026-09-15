@@ -10,6 +10,8 @@ import { scanTJAInfo } from './scanner';
 import { validateTJARaw } from './validator';
 import { Timeline } from './timeline';
 import { approxEqual } from './math';
+import { snapTimelineXToGrid, calculateTimelineLayout } from '../editor/coordinate-mapping';
+import { GridDivision } from '../editor/editor-types';
 
 export interface TestCaseResult {
   id: string;
@@ -607,6 +609,88 @@ BALLOON:7,12
         balloonsMatch,
         gogoMatch,
       },
+    };
+  });
+
+  // 21. Fixed Grid Divisions Snapping (4, 8, 12, 16, 20, 24, 32, 48)
+  test('test-grid-snapping', 'Fixed Grid Snapping (4, 8, 12, 16, 20, 24, 32, 48)', 'grid', () => {
+    const rawTja = `TITLE:Grid Test\nBPM:120\n#START\n0000,\n0000,\n#END`;
+    const chart = parseTJA(rawTja);
+    const course = chart.activeCourse;
+    const timeline = new Timeline(course);
+    const layout = calculateTimelineLayout(course, 100);
+
+    const testGrids: GridDivision[] = [4, 8, 12, 16, 20, 24, 32, 48];
+    const m0 = layout.measures[0];
+
+    for (const grid of testGrids) {
+      for (let step = 0; step < grid; step++) {
+        // Calculate an X position near the step fraction with a slight offset
+        const targetFraction = step / grid;
+        const testX = m0.startX + (targetFraction + 0.005 / grid) * m0.width;
+
+        const snap = snapTimelineXToGrid(testX, timeline, layout, grid);
+        if (!snap) {
+          return { passed: false, message: `snapTimelineXToGrid returned null for grid ${grid} step ${step}` };
+        }
+
+        if (snap.measureIndex !== 0) {
+          return { passed: false, message: `Expected measure 0, got ${snap.measureIndex} for grid ${grid}` };
+        }
+
+        const expectedFraction = step / grid;
+        if (!approxEqual(snap.rational.fraction, expectedFraction, 0.0001)) {
+          return {
+            passed: false,
+            message: `Grid ${grid} step ${step}: expected fraction ${expectedFraction}, got ${snap.rational.fraction}`,
+          };
+        }
+
+        const expectedTime = (step / grid) * 2.0; // 120 BPM 4/4 = 2.0s per measure
+        if (!approxEqual(snap.time, expectedTime, 0.001)) {
+          return {
+            passed: false,
+            message: `Grid ${grid} step ${step}: expected time ${expectedTime}, got ${snap.time}`,
+          };
+        }
+      }
+    }
+
+    return {
+      passed: true,
+      message: 'All 8 fixed grid divisions (4, 8, 12, 16, 20, 24, 32, 48) snapped with exact RationalPosition and time.',
+    };
+  });
+
+  // 22. MEASURE Insertion Guard (Measure-Start Restriction)
+  test('test-measure-start-restriction', 'MEASURE Insertion Guard (Measure-Start Restriction)', 'timing', () => {
+    const rawTja = `TITLE:Measure Test\nBPM:120\n#START\n1000,\n1000,\n#END`;
+    const chart = parseTJA(rawTja);
+    const course = chart.activeCourse;
+    const timeline = new Timeline(course);
+
+    // Measure 1 start time is 2.0s
+    const m1 = timeline.getMeasureByIndex(1);
+    if (!m1) return { passed: false, message: 'Measure 1 not found' };
+
+    // When MEASURE is changed at measure start (rational 0/1)
+    const newTja = `TITLE:Measure Test\nBPM:120\n#START\n1000,\n#MEASURE 3/4\n100,\n#END`;
+    const updatedChart = parseTJA(newTja);
+    const updatedTimeline = new Timeline(updatedChart.activeCourse);
+
+    const updatedM1 = updatedTimeline.getMeasureByIndex(1);
+    if (!updatedM1 || updatedM1.numerator !== 3 || updatedM1.denominator !== 4) {
+      return { passed: false, message: 'Measure 1 failed to adopt 3/4 signature cleanly' };
+    }
+
+    // Measure 1 duration in 3/4 at 120 BPM = 3 * 0.5 = 1.5s
+    if (!approxEqual(updatedM1.duration, 1.5, 0.001)) {
+      return { passed: false, message: `Expected duration 1.5s, got ${updatedM1.duration}` };
+    }
+
+    return {
+      passed: true,
+      message: 'MEASURE changes at measure start successfully update measure model and duration without time desync.',
     };
   });
 

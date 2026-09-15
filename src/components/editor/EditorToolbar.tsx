@@ -22,9 +22,7 @@ interface EditorToolbarProps {
   selectedTool: NoteToolType;
   onSelectTool: (tool: NoteToolType) => void;
   selectedGrid: GridDivision;
-  customGridDiv: number;
   onSelectGrid: (grid: GridDivision) => void;
-  onChangeCustomGrid: (val: number) => void;
   gogoMode?: 'GOGOSTART' | 'GOGOEND';
   onChangeGogoMode?: (mode: 'GOGOSTART' | 'GOGOEND') => void;
   onAddGogo?: () => void;
@@ -43,9 +41,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
   selectedTool,
   onSelectTool,
   selectedGrid,
-  customGridDiv,
   onSelectGrid,
-  onChangeCustomGrid,
   gogoMode,
   onChangeGogoMode,
   onAddGogo,
@@ -166,9 +162,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
         <div className="shrink-0 pl-2 border-l border-slate-800/80">
           <GridSelector
             selectedGrid={selectedGrid}
-            customGridDiv={customGridDiv}
             onSelectGrid={onSelectGrid}
-            onChangeCustomGrid={onChangeCustomGrid}
           />
         </div>
       </div>
