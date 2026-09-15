@@ -33,8 +33,10 @@ import {
   ChevronRight,
   ShieldAlert,
 } from 'lucide-react';
+import { usePWAUpdate, PWAUpdateNotification, PWAInstallButton } from './pwa';
 
 export default function App() {
+  const pwaState = usePWAUpdate();
   const [activeTab, setActiveTab] = useState<'tests' | 'playground' | 'roundtrip' | 'timeline' | 'design'>('tests');
   const [testResults, setTestResults] = useState<TestCaseResult[]>(() => runAllCoreTests());
   const [testCategoryFilter, setTestCategoryFilter] = useState<string>('all');
@@ -166,6 +168,9 @@ export default function App() {
 
         {/* Global Metric Badges */}
         <div className="flex items-center gap-3 text-xs">
+          {/* PWA Install Button */}
+          <PWAInstallButton />
+
           <div
             id="status-tests-badge"
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border font-medium ${
@@ -1058,10 +1063,63 @@ export default function App() {
                   </div>
                 </div>
               </div>
+
+              {/* PWA & GitHub Pages Infrastructure Card */}
+              <div className="bg-slate-950/80 p-4 rounded-xl border border-slate-800 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h3 className="text-xs font-bold text-amber-400 uppercase tracking-wider">
+                    4. PWA / GitHub Pages / 自動更新基盤
+                  </h3>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-300">
+                      Scope: <strong className="text-white">{pwaState.registration?.scope || import.meta.env.BASE_URL}</strong>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => pwaState.checkForUpdates()}
+                      className="flex items-center gap-1 px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-xs text-amber-300 font-medium transition-colors"
+                    >
+                      <RefreshCw className="w-3 h-3" />
+                      <span>更新を確認</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 font-mono text-xs">
+                  <div className="bg-slate-900 p-2.5 rounded border border-slate-800 text-slate-300">
+                    <span className="text-slate-400 text-[10px] block uppercase tracking-wider">Service Worker</span>
+                    <span className="font-bold text-white">
+                      {pwaState.registration ? 'Active & Running' : 'Registered / Standby'}
+                    </span>
+                    <span className="text-[10px] text-slate-500 block mt-0.5">
+                      {pwaState.offlineReady ? 'Offline Ready (App Shell Precached)' : 'Cache Initializing'}
+                    </span>
+                  </div>
+
+                  <div className="bg-slate-900 p-2.5 rounded border border-slate-800 text-slate-300">
+                    <span className="text-slate-400 text-[10px] block uppercase tracking-wider">Auto-Update Strategy</span>
+                    <span className="font-bold text-emerald-400">Prompt + Safe Reload</span>
+                    <span className="text-[10px] text-slate-500 block mt-0.5">
+                      作業中データ保護ガード (Unsaved Guard) 完備
+                    </span>
+                  </div>
+
+                  <div className="bg-slate-900 p-2.5 rounded border border-slate-800 text-slate-300">
+                    <span className="text-slate-400 text-[10px] block uppercase tracking-wider">Asset Caching Policy</span>
+                    <span className="font-bold text-sky-400">NetworkFirst / CacheFirst</span>
+                    <span className="text-[10px] text-slate-500 block mt-0.5">
+                      HTML: NetworkFirst / 大容量音源(OGG)除外
+                    </span>
+                  </div>
+                </div>
+              </div>
             </div>
           </section>
         )}
       </main>
+
+      {/* PWA Update Notification Banner */}
+      <PWAUpdateNotification pwaState={pwaState} />
     </div>
   );
 }

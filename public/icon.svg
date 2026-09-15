@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f172a" />
+      <stop offset="100%" stop-color="#020617" />
+    </linearGradient>
+    <linearGradient id="amberRose" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f59e0b" />
+      <stop offset="50%" stop-color="#f43f5e" />
+      <stop offset="100%" stop-color="#e11d48" />
+    </linearGradient>
+    <linearGradient id="donGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fb7185" />
+      <stop offset="100%" stop-color="#e11d48" />
+    </linearGradient>
+    <linearGradient id="kaGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8" />
+      <stop offset="100%" stop-color="#0284c7" />
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="16" flood-color="#000" flood-opacity="0.5" />
+    </filter>
+  </defs>
+
+  <!-- Background container with rounded corners -->
+  <rect width="512" height="512" rx="112" fill="url(#bgGrad)" />
+  <rect width="510" height="510" x="1" y="1" rx="111" fill="none" stroke="#334155" stroke-width="2" stroke-opacity="0.6" />
+
+  <!-- Central Taiko Drum & M Crest -->
+  <g filter="url(#shadow)">
+    <!-- Outer Drum Rim (Subtle Slate/Indigo ring) -->
+    <circle cx="256" cy="256" r="172" fill="none" stroke="#1e293b" stroke-width="24" />
+    <circle cx="256" cy="256" r="160" fill="none" stroke="#334155" stroke-width="4" stroke-dasharray="8 8" />
+
+    <!-- Stylized "M" Note Monogram (MikaNotes) -->
+    <path d="M 160 330 L 160 210 L 256 295 L 352 210 L 352 330" 
+          fill="none" 
+          stroke="url(#amberRose)" 
+          stroke-width="32" 
+          stroke-linecap="round" 
+          stroke-linejoin="round" />
+
+    <!-- Don Node (Red / Rose - Left Accent Note) -->
+    <circle cx="160" cy="180" r="28" fill="url(#donGrad)" />
+    <circle cx="160" cy="180" r="12" fill="#ffffff" fill-opacity="0.8" />
+
+    <!-- Ka Node (Blue / Sky - Right Accent Note) -->
+    <circle cx="352" cy="180" r="28" fill="url(#kaGrad)" />
+    <circle cx="352" cy="180" r="12" fill="#ffffff" fill-opacity="0.8" />
+
+    <!-- Center Gold Diamond / Rhythm Spark -->
+    <polygon points="256,170 270,185 256,200 242,185" fill="#f59e0b" />
+  </g>
+</svg>
