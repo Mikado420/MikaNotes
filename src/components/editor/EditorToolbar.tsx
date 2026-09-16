@@ -8,6 +8,7 @@
 import React from 'react';
 import { Music, Crown, Gauge, SplitSquareVertical } from 'lucide-react';
 import { EditorTab, NoteToolType, GridDivision } from '../../editor/editor-types';
+import { PendingSpecialNote } from '../../editor/special-notes';
 import { NoteToolPanel } from '../tools/NoteToolPanel';
 import { GridSelector } from '../tools/GridSelector';
 import {
@@ -23,6 +24,10 @@ interface EditorToolbarProps {
   onSelectTool: (tool: NoteToolType) => void;
   selectedGrid: GridDivision;
   onSelectGrid: (grid: GridDivision) => void;
+  pendingSpecialNote?: PendingSpecialNote | null;
+  onCancelPending?: () => void;
+  balloonHitCount?: number;
+  onChangeBalloonHitCount?: (count: number) => void;
   gogoMode?: 'GOGOSTART' | 'GOGOEND';
   onChangeGogoMode?: (mode: 'GOGOSTART' | 'GOGOEND') => void;
   onAddGogo?: () => void;
@@ -42,6 +47,10 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
   onSelectTool,
   selectedGrid,
   onSelectGrid,
+  pendingSpecialNote,
+  onCancelPending,
+  balloonHitCount,
+  onChangeBalloonHitCount,
   gogoMode,
   onChangeGogoMode,
   onAddGogo,
@@ -129,6 +138,10 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
             <NoteToolPanel
               selectedTool={selectedTool}
               onSelectTool={onSelectTool}
+              pendingSpecialNote={pendingSpecialNote}
+              onCancelPending={onCancelPending}
+              balloonHitCount={balloonHitCount}
+              onChangeBalloonHitCount={onChangeBalloonHitCount}
             />
           )}
 

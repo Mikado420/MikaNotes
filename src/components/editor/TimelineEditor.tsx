@@ -15,6 +15,7 @@ import React, { useRef, useEffect, useState } from 'react';
 import { CourseModel, Timeline } from '../../core';
 import { TimelineLayout, GridDivision } from '../../editor/editor-types';
 import { timeToTimelineX } from '../../editor/coordinate-mapping';
+import { PendingSpecialNote } from '../../editor/special-notes';
 import { WaveformArea } from './WaveformArea';
 import { MeasureHeader } from './MeasureHeader';
 import { NoteLane } from './NoteLane';
@@ -23,7 +24,7 @@ import { BpmLane } from './BpmLane';
 import { MeasureLane } from './MeasureLane';
 import { Playhead } from './Playhead';
 import { ZoomControl } from './ZoomControl';
-import { Crown, Gauge, SplitSquareVertical } from 'lucide-react';
+import { Crown, Gauge, SplitSquareVertical, AlertCircle, CheckCircle, Info } from 'lucide-react';
 
 interface TimelineEditorProps {
   course: CourseModel;
@@ -39,6 +40,8 @@ interface TimelineEditorProps {
   onZoomIn: () => void;
   onZoomOut: () => void;
   onResetZoom: () => void;
+  pendingSpecialNote?: PendingSpecialNote | null;
+  notification?: { message: string; type: 'error' | 'success' | 'info' } | null;
 }
 
 export const TimelineEditor: React.FC<TimelineEditorProps> = ({
@@ -55,6 +58,8 @@ export const TimelineEditor: React.FC<TimelineEditorProps> = ({
   onZoomIn,
   onZoomOut,
   onResetZoom,
+  pendingSpecialNote,
+  notification,
 }) => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [viewportMetrics, setViewportMetrics] = useState({ scrollLeft: 0, clientWidth: 1200 });
@@ -181,6 +186,7 @@ export const TimelineEditor: React.FC<TimelineEditorProps> = ({
             onTapLane={onTapTimeline}
             visibleStartX={visibleStartX}
             visibleEndX={visibleEndX}
+            pendingSpecialNote={pendingSpecialNote}
           />
 
           {/* 4. GOGO Lane */}
@@ -212,6 +218,29 @@ export const TimelineEditor: React.FC<TimelineEditorProps> = ({
           <Playhead x={playheadX} />
         </div>
       </div>
+
+      {/* Floating Notification Toast */}
+      {notification && (
+        <div
+          id="editor-toast-notification"
+          className={`absolute top-3 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-lg shadow-xl text-xs font-semibold flex items-center gap-2 transition-all duration-200 backdrop-blur-md border animate-in fade-in slide-in-from-top-2 pointer-events-none ${
+            notification.type === 'error'
+              ? 'bg-rose-950/95 text-rose-200 border-rose-600/80 shadow-rose-950/60'
+              : notification.type === 'success'
+              ? 'bg-emerald-950/95 text-emerald-200 border-emerald-600/80 shadow-emerald-950/60'
+              : 'bg-slate-900/95 text-slate-200 border-sky-500/70 shadow-slate-950/60'
+          }`}
+        >
+          {notification.type === 'error' ? (
+            <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+          ) : notification.type === 'success' ? (
+            <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
+          ) : (
+            <Info className="w-4 h-4 text-sky-400 shrink-0" />
+          )}
+          <span>{notification.message}</span>
+        </div>
+      )}
     </div>
   );
 };

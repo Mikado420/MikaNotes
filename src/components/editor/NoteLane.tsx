@@ -8,6 +8,7 @@ import React from 'react';
 import { CourseModel, NoteModel, RollModel, BalloonModel } from '../../core';
 import { TimelineLayout, GridDivision } from '../../editor/editor-types';
 import { getNoteX, findVisibleMeasureLayouts } from '../../editor/coordinate-mapping';
+import { PendingSpecialNote } from '../../editor/special-notes';
 
 interface NoteLaneProps {
   course: CourseModel;
@@ -16,6 +17,7 @@ interface NoteLaneProps {
   onTapLane: (x: number) => void;
   visibleStartX?: number;
   visibleEndX?: number;
+  pendingSpecialNote?: PendingSpecialNote | null;
 }
 
 export const NoteLane: React.FC<NoteLaneProps> = ({
@@ -25,6 +27,7 @@ export const NoteLane: React.FC<NoteLaneProps> = ({
   onTapLane,
   visibleStartX,
   visibleEndX,
+  pendingSpecialNote,
 }) => {
   const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -178,6 +181,14 @@ export const NoteLane: React.FC<NoteLaneProps> = ({
     return map;
   }, [course.balloons]);
 
+  // Compute X coordinate of pending special note start position
+  const pendingStartX = React.useMemo(() => {
+    if (!pendingSpecialNote) return null;
+    const mLayout = layout.measures[pendingSpecialNote.startMeasureIndex];
+    if (!mLayout) return null;
+    return getNoteX(pendingSpecialNote.startPosition, mLayout);
+  }, [pendingSpecialNote, layout.measures]);
+
   return (
     <div
       id="note-lane"
@@ -261,7 +272,7 @@ export const NoteLane: React.FC<NoteLaneProps> = ({
         })}
 
         {/* Render Balloons (visible only) */}
-        {visibleBalloons.map(({ startX, endX, key }) => {
+        {visibleBalloons.map(({ balloon, startX, endX, key }) => {
           const width = Math.max(16, endX - startX);
           const height = 30;
           const y = 56 - height / 2;
@@ -279,9 +290,89 @@ export const NoteLane: React.FC<NoteLaneProps> = ({
                 stroke="white"
                 strokeWidth="2"
               />
+              {balloon.hitCount > 0 && width >= 26 && (
+                <text
+                  x={startX + 14}
+                  y={56 + 4}
+                  fill="white"
+                  fontSize="12"
+                  fontWeight="bold"
+                  textAnchor="middle"
+                  className="select-none pointer-events-none"
+                >
+                  {balloon.hitCount}
+                </text>
+              )}
             </g>
           );
         })}
+
+        {/* Render Pending Special Note Start Indicator */}
+        {pendingStartX !== null && pendingSpecialNote && (
+          <g key="pending-special-start">
+            {/* Pulsing vertical guide line */}
+            <line
+              x1={pendingStartX}
+              y1={0}
+              x2={pendingStartX}
+              y2={112}
+              stroke={
+                pendingSpecialNote.type === 'balloon'
+                  ? '#f472b6'
+                  : pendingSpecialNote.type === 'big_roll'
+                  ? '#fb923c'
+                  : '#facc15'
+              }
+              strokeWidth="2.5"
+              strokeDasharray="4 3"
+            />
+            {/* Start circle indicator */}
+            <circle
+              cx={pendingStartX}
+              cy={56}
+              r={pendingSpecialNote.type === 'big_roll' ? 20 : 16}
+              fill={
+                pendingSpecialNote.type === 'balloon'
+                  ? '#ec4899'
+                  : pendingSpecialNote.type === 'big_roll'
+                  ? '#f97316'
+                  : '#eab308'
+              }
+              fillOpacity="0.9"
+              stroke="white"
+              strokeWidth="3"
+            />
+            {/* START text pill */}
+            <rect
+              x={pendingStartX - 22}
+              y={6}
+              width={44}
+              height={18}
+              rx={4}
+              fill="#0f172a"
+              fillOpacity="0.9"
+              stroke={
+                pendingSpecialNote.type === 'balloon'
+                  ? '#ec4899'
+                  : pendingSpecialNote.type === 'big_roll'
+                  ? '#f97316'
+                  : '#eab308'
+              }
+              strokeWidth="1.5"
+            />
+            <text
+              x={pendingStartX}
+              y={18}
+              fill="white"
+              fontSize="9"
+              fontWeight="bold"
+              textAnchor="middle"
+              className="select-none pointer-events-none"
+            >
+              START
+            </text>
+          </g>
+        )}
       </svg>
 
       {/* Render Individual Notes matching reference image precisely (visible measures only) */}

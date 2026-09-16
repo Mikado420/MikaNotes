@@ -698,6 +698,14 @@ function parseCourseContent(
     closeActiveRoll(currentTime, currentBeat, Math.max(0, measures.length - 1), { numerator: 1, denominator: 1, fraction: 1 });
   }
 
+  // Populate measure.rolls for all measures with any rolls or balloons spanning them
+  const allSpecial = [...rolls, ...balloons];
+  for (const m of measures) {
+    m.rolls = allSpecial.filter(
+      (r) => r.startMeasureIndex <= m.index && r.endMeasureIndex >= m.index
+    );
+  }
+
   // Calculate final duration and combo
   const totalDuration = notes.length > 0
     ? notes.reduce((max, n) => Math.max(max, n.time), currentTime)

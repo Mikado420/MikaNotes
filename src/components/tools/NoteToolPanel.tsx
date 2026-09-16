@@ -5,20 +5,29 @@
  */
 
 import React from 'react';
-import { Eraser } from 'lucide-react';
+import { Eraser, X } from 'lucide-react';
 import { NoteToolType } from '../../editor/editor-types';
+import { PendingSpecialNote } from '../../editor/special-notes';
 
 interface NoteToolPanelProps {
   selectedTool: NoteToolType;
   onSelectTool: (tool: NoteToolType) => void;
+  pendingSpecialNote?: PendingSpecialNote | null;
+  onCancelPending?: () => void;
+  balloonHitCount?: number;
+  onChangeBalloonHitCount?: (count: number) => void;
 }
 
 export const NoteToolPanel: React.FC<NoteToolPanelProps> = ({
   selectedTool,
   onSelectTool,
+  pendingSpecialNote,
+  onCancelPending,
+  balloonHitCount = 5,
+  onChangeBalloonHitCount,
 }) => {
   return (
-    <div id="note-tool-panel" className="flex items-center gap-1.5 sm:gap-2">
+    <div id="note-tool-panel" className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
       {/* 1. ドン (Don) */}
       <button
         id="tool-don"
@@ -172,6 +181,50 @@ export const NoteToolPanel: React.FC<NoteToolPanelProps> = ({
         </div>
         <span className="text-[11px] font-medium text-slate-200">消去</span>
       </button>
+
+      {/* Balloon hit count configuration when Balloon tool is active */}
+      {selectedTool === '7' && (
+        <div className="flex items-center gap-1 px-2 py-1 rounded bg-pink-950/40 border border-pink-700/50 text-pink-200 text-xs">
+          <span className="text-[11px] font-medium">打数:</span>
+          <input
+            id="balloon-hit-count-input"
+            type="number"
+            min="1"
+            max="999"
+            value={balloonHitCount}
+            onChange={(e) => {
+              const val = parseInt(e.target.value, 10);
+              if (!isNaN(val) && val > 0 && onChangeBalloonHitCount) {
+                onChangeBalloonHitCount(val);
+              }
+            }}
+            className="w-12 px-1.5 py-0.5 rounded bg-slate-900 border border-pink-500/60 text-center text-xs font-bold text-white focus:outline-none focus:ring-1 focus:ring-pink-400"
+          />
+        </div>
+      )}
+
+      {/* Pending State Indicator & Cancel Button */}
+      {pendingSpecialNote && (
+        <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-amber-950/60 border border-amber-500/80 text-amber-200 text-xs animate-pulse">
+          <span className="font-semibold">
+            {pendingSpecialNote.type === 'balloon'
+              ? '風船'
+              : pendingSpecialNote.type === 'big_roll'
+              ? '大連打'
+              : '連打'}
+            開始点設定済 (M{pendingSpecialNote.startMeasureIndex + 1})
+          </span>
+          {onCancelPending && (
+            <button
+              onClick={onCancelPending}
+              className="p-0.5 ml-1 rounded hover:bg-amber-800/60 text-amber-300 hover:text-white"
+              title="配置キャンセル"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 };

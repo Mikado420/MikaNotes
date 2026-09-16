@@ -70,6 +70,8 @@ export const EditorShell: React.FC<EditorShellProps> = ({
         onZoomIn={editor.zoomIn}
         onZoomOut={editor.zoomOut}
         onResetZoom={() => editor.setZoomPercent(100)}
+        pendingSpecialNote={editor.pendingSpecialNote}
+        notification={editor.notification}
       />
 
       {/* 3. Bottom Toolbar & Mode Switcher */}
@@ -80,6 +82,10 @@ export const EditorShell: React.FC<EditorShellProps> = ({
         onSelectTool={editor.setSelectedNoteTool}
         selectedGrid={editor.selectedGrid}
         onSelectGrid={editor.setSelectedGrid}
+        pendingSpecialNote={editor.pendingSpecialNote}
+        onCancelPending={editor.cancelPendingSpecialNote}
+        balloonHitCount={editor.balloonHitCount}
+        onChangeBalloonHitCount={editor.setBalloonHitCount}
         gogoMode={editor.gogoMode}
         onChangeGogoMode={editor.setGogoMode}
         onAddGogo={() => editor.insertGogoDirect('GOGOSTART')}

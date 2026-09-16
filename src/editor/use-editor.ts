@@ -16,6 +16,8 @@ import {
   parseTJA,
   validateTJARaw,
   writeTJA,
+  RollModel,
+  BalloonModel,
 } from '../core';
 import {
   EditorTab,
@@ -29,6 +31,13 @@ import {
   snapTimelineXToGrid,
   timeToTimelineX,
 } from './coordinate-mapping';
+import {
+  PendingSpecialNote,
+  validateSpecialStart,
+  validateSpecialPlacement,
+  createSpecialNote,
+  eraseSpecialNoteAtPosition,
+} from './special-notes';
 
 export interface UseEditorOptions {
   initialTjaText: string;
@@ -71,10 +80,59 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
   const [currentTime, setCurrentTime] = useState<number>(0);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [zoom, setZoom] = useState<number>(155); // Match 155% in reference image
-  const [selectedTab, setSelectedTab] = useState<EditorTab>('note');
-  const [selectedNoteTool, setSelectedNoteTool] = useState<NoteToolType>('1'); // Default Don
+  const [selectedTab, setSelectedTabState] = useState<EditorTab>('note');
+  const [selectedNoteTool, setSelectedNoteToolState] = useState<NoteToolType>('1'); // Default Don
   const [selectedGrid, setSelectedGrid] = useState<GridDivision>(16); // Default 16
   const [selectedMeasureForEdit, setSelectedMeasureForEdit] = useState<number | null>(null);
+
+  // Special notes editing state (Roll, Big Roll, Balloon)
+  const [pendingSpecialNote, setPendingSpecialNote] = useState<PendingSpecialNote | null>(null);
+  const [balloonHitCount, setBalloonHitCount] = useState<number>(5);
+
+  // Non-blocking toast notifications for user feedback
+  const [notification, setNotification] = useState<{
+    message: string;
+    type: 'error' | 'success' | 'info';
+  } | null>(null);
+  const notificationTimerRef = useRef<any>(null);
+
+  const showNotification = useCallback(
+    (message: string, type: 'error' | 'success' | 'info' = 'error') => {
+      if (notificationTimerRef.current) clearTimeout(notificationTimerRef.current);
+      setNotification({ message, type });
+      notificationTimerRef.current = setTimeout(() => {
+        setNotification(null);
+        notificationTimerRef.current = null;
+      }, 3000);
+    },
+    []
+  );
+
+  const clearNotification = useCallback(() => {
+    if (notificationTimerRef.current) clearTimeout(notificationTimerRef.current);
+    setNotification(null);
+  }, []);
+
+  const cancelPendingSpecialNote = useCallback(() => {
+    setPendingSpecialNote(null);
+    showNotification('特殊音符の配置をキャンセルしました', 'info');
+  }, [showNotification]);
+
+  // Wrapper to reset pending state when switching tool, tab, or course
+  const setSelectedNoteTool = useCallback((tool: NoteToolType) => {
+    setSelectedNoteToolState(tool);
+    setPendingSpecialNote(null);
+  }, []);
+
+  const setSelectedTab = useCallback((tab: EditorTab) => {
+    setSelectedTabState(tab);
+    setPendingSpecialNote(null);
+  }, []);
+
+  const handleSetActiveCourseKey = useCallback((key: number) => {
+    setActiveCourseKey(key);
+    setPendingSpecialNote(null);
+  }, []);
 
   // Auxiliary tool parameters for GOGO, BPM, and MEASURE
   const [gogoMode, setGogoMode] = useState<'GOGOSTART' | 'GOGOEND'>('GOGOSTART');
@@ -127,6 +185,7 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
   }, []);
 
   const startPlayback = useCallback(() => {
+    setPendingSpecialNote(null);
     setIsPlaying(true);
     lastFrameTimeRef.current = performance.now();
   }, []);
@@ -200,6 +259,7 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
 
   const undo = useCallback(() => {
     if (!canUndo) return;
+    setPendingSpecialNote(null);
     historyIndexRef.current -= 1;
     const prevTja = historyRef.current[historyIndexRef.current];
     try {
@@ -216,6 +276,7 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
 
   const redo = useCallback(() => {
     if (!canRedo) return;
+    setPendingSpecialNote(null);
     historyIndexRef.current += 1;
     const nextTja = historyRef.current[historyIndexRef.current];
     try {
@@ -356,112 +417,290 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
   // Handle clicking / tapping on the timeline to place or erase notes or insert commands
   const handleTimelineTap = useCallback(
     (timelineX: number) => {
-      const snapResult = snapTimelineXToGrid(timelineX, timeline, timelineLayout, selectedGrid);
-      if (!snapResult) return;
-
-      const { measureIndex, rational, time } = snapResult;
-
-      // Update current time to clicked position
-      setCurrentTime(time);
-      setSelectedMeasureForEdit(measureIndex);
-
       const currentCourse = chart.courses[activeCourseKey] || chart.activeCourse;
-      if (!currentCourse || !currentCourse.measures[measureIndex]) return;
+      if (!currentCourse) return;
 
       // 1. Note Tab: Perform note editing
       if (selectedTab === 'note') {
-        // Clone course measures safely
-        const updatedCourse: CourseModel = {
-          ...currentCourse,
-          measures: currentCourse.measures.map((m, idx) => {
-            if (idx !== measureIndex) return m;
+        // A. Special tools (5: Roll, 6: Big Roll, 7: Balloon)
+        if (['5', '6', '7'].includes(selectedNoteTool)) {
+          if (!pendingSpecialNote) {
+            // Tap 1: Start Position
+            const snapResult = snapTimelineXToGrid(timelineX, timeline, timelineLayout, selectedGrid);
+            if (!snapResult) return;
 
-            let updatedNotes: NoteModel[];
-            if (selectedNoteTool === 'erase') {
-              // Remove any note at this exact rational position
-              updatedNotes = m.notes.filter(
-                (n) => !isSameRationalPosition(n.positionInMeasure, rational)
-              );
-            } else if (['1', '2', '3', '4'].includes(selectedNoteTool)) {
-              // Add or replace note
-              const filtered = m.notes.filter(
-                (n) => !isSameRationalPosition(n.positionInMeasure, rational)
-              );
+            const { measureIndex, rational, time, snappedX } = snapResult;
+            setCurrentTime(time);
+            setSelectedMeasureForEdit(measureIndex);
 
-              const kindMap: Record<string, NoteType> = {
-                '1': 'don',
-                '2': 'ka',
-                '3': 'big_don',
-                '4': 'big_ka',
-              };
-              const nType = selectedNoteTool as '1' | '2' | '3' | '4';
-
-              const newNote: NoteModel = {
-                id: `note-${measureIndex}-${time.toFixed(4)}-${Math.random().toString(36).substring(2, 6)}`,
-                type: nType,
-                kind: kindMap[nType] || 'don',
-                time,
-                audioTime: time - (chart.headers.offset || 0),
-                beat: m.startBeat + rational.fraction * ((m.numerator * 4) / m.denominator),
-                measureIndex,
-                positionInMeasure: rational,
-                bpm: m.initialBpm,
-                scroll: 1.0,
-              };
-
-              updatedNotes = [...filtered, newNote].sort(
-                (a, b) => a.positionInMeasure.fraction - b.positionInMeasure.fraction
-              );
-            } else {
-              // Roll, big roll, balloon selection
-              return m;
+            const validation = validateSpecialStart(currentCourse, measureIndex, rational, time);
+            if (!validation.valid) {
+              showNotification(validation.error || '無効な開始位置です', 'error');
+              return;
             }
 
-            return {
-              ...m,
-              notes: updatedNotes,
+            const toolType = selectedNoteTool as '5' | '6' | '7';
+            const specialType = toolType === '5' ? 'roll' : toolType === '6' ? 'big_roll' : 'balloon';
+            setPendingSpecialNote({
+              toolType,
+              type: specialType,
+              rawType: toolType,
+              startMeasureIndex: measureIndex,
+              startPosition: rational,
+              startTime: time,
+              snappedX,
+            });
+            showNotification('開始位置を設定しました。終了位置をタップしてください。', 'info');
+            return;
+          } else {
+            // Tap 2: End Position
+            const snapResult = snapTimelineXToGrid(
+              timelineX,
+              timeline,
+              timelineLayout,
+              selectedGrid,
+              { allowMeasureEnd: true }
+            );
+            if (!snapResult) return;
+
+            const { measureIndex: endMeasureIndex, rational: endRational, time: endTime } = snapResult;
+
+            const validation = validateSpecialPlacement(
+              currentCourse,
+              pendingSpecialNote,
+              endMeasureIndex,
+              endRational,
+              endTime,
+              balloonHitCount
+            );
+            if (!validation.valid) {
+              showNotification(validation.error || '無効な終了位置です', 'error');
+              return;
+            }
+
+            const offset = chart.headers.offset || 0;
+            const initialBpm = timeline.getBpmAtTime(pendingSpecialNote.startTime) || 120;
+            const updatedCourse = createSpecialNote(
+              currentCourse,
+              pendingSpecialNote,
+              endMeasureIndex,
+              endRational,
+              endTime,
+              balloonHitCount,
+              offset,
+              initialBpm
+            );
+
+            const updatedCourses: Record<number, CourseModel> = {
+              ...chart.courses,
+              [activeCourseKey]: updatedCourse,
             };
-          }),
-        };
+            const newChart: ChartModel = {
+              ...chart,
+              courses: updatedCourses,
+              activeCourseKey,
+              activeCourse: updatedCourse,
+            };
 
-        // Recompute course-level flat notes array
-        const allNotes: NoteModel[] = [];
-        for (const m of updatedCourse.measures) {
-          allNotes.push(...m.notes);
+            const label =
+              pendingSpecialNote.type === 'balloon'
+                ? '風船'
+                : pendingSpecialNote.type === 'big_roll'
+                ? '大連打'
+                : '連打';
+            setPendingSpecialNote(null);
+            pushHistory(newChart);
+            showNotification(`${label}を作成しました`, 'success');
+            setCurrentTime(endTime);
+            setSelectedMeasureForEdit(endMeasureIndex);
+            return;
+          }
         }
-        updatedCourse.notes = allNotes.sort((a, b) => a.time - b.time);
 
-        const updatedCourses: Record<number, CourseModel> = {
-          ...chart.courses,
-          [activeCourseKey]: updatedCourse,
-        };
+        // B. Erase tool: Deletes regular notes first; if none, deletes special notes (roll/balloon)
+        if (selectedNoteTool === 'erase') {
+          const snapResult = snapTimelineXToGrid(timelineX, timeline, timelineLayout, selectedGrid);
+          if (!snapResult) return;
 
-        const newChart: ChartModel = {
-          ...chart,
-          courses: updatedCourses,
-          activeCourseKey,
-          activeCourse: updatedCourse,
-        };
+          const { measureIndex, rational, time } = snapResult;
+          setCurrentTime(time);
+          setSelectedMeasureForEdit(measureIndex);
 
-        pushHistory(newChart);
+          const targetM = currentCourse.measures[measureIndex];
+          if (!targetM) return;
+
+          // Check regular note deletion first
+          const noteIdx = targetM.notes.findIndex((n) =>
+            isSameRationalPosition(n.positionInMeasure, rational)
+          );
+
+          if (noteIdx !== -1) {
+            const updatedNotes = targetM.notes.filter((_, idx) => idx !== noteIdx);
+            const updatedCourse: CourseModel = {
+              ...currentCourse,
+              measures: currentCourse.measures.map((m, idx) => {
+                if (idx !== measureIndex) return m;
+                return { ...m, notes: updatedNotes };
+              }),
+            };
+            const allNotes: NoteModel[] = [];
+            for (const m of updatedCourse.measures) {
+              allNotes.push(...m.notes);
+            }
+            updatedCourse.notes = allNotes.sort((a, b) => a.time - b.time);
+
+            const updatedCourses: Record<number, CourseModel> = {
+              ...chart.courses,
+              [activeCourseKey]: updatedCourse,
+            };
+            const newChart: ChartModel = {
+              ...chart,
+              courses: updatedCourses,
+              activeCourseKey,
+              activeCourse: updatedCourse,
+            };
+            pushHistory(newChart);
+            showNotification('音符を削除しました', 'info');
+            return;
+          }
+
+          // If no regular note, check special notes deletion (Roll, Big Roll, Balloon)
+          const specialErase = eraseSpecialNoteAtPosition(currentCourse, measureIndex, rational, time);
+          if (specialErase.deleted) {
+            const updatedCourse = specialErase.updatedCourse;
+            const updatedCourses: Record<number, CourseModel> = {
+              ...chart.courses,
+              [activeCourseKey]: updatedCourse,
+            };
+            const newChart: ChartModel = {
+              ...chart,
+              courses: updatedCourses,
+              activeCourseKey,
+              activeCourse: updatedCourse,
+            };
+            pushHistory(newChart);
+            const label =
+              specialErase.deletedType === 'balloon'
+                ? '風船'
+                : specialErase.deletedType === 'big_roll'
+                ? '大連打'
+                : '連打';
+            showNotification(`${label}を削除しました`, 'info');
+            return;
+          }
+
+          return;
+        }
+
+        // C. Regular notes ('1', '2', '3', '4')
+        if (['1', '2', '3', '4'].includes(selectedNoteTool)) {
+          const snapResult = snapTimelineXToGrid(timelineX, timeline, timelineLayout, selectedGrid);
+          if (!snapResult) return;
+
+          const { measureIndex, rational, time } = snapResult;
+          setCurrentTime(time);
+          setSelectedMeasureForEdit(measureIndex);
+
+          // Check endpoint collision: cannot overwrite existing roll or balloon endpoints
+          const allSpecial: (RollModel | BalloonModel)[] = [
+            ...currentCourse.rolls,
+            ...currentCourse.balloons,
+          ];
+          const endpointConflict = allSpecial.some(
+            (r) =>
+              (r.startMeasureIndex === measureIndex &&
+                isSameRationalPosition(r.startPosition, rational)) ||
+              (r.endMeasureIndex === measureIndex &&
+                isSameRationalPosition(r.endPosition, rational))
+          );
+          if (endpointConflict) {
+            showNotification('特殊音符の端点には通常音符を配置できません', 'error');
+            return;
+          }
+
+          const targetM = currentCourse.measures[measureIndex];
+          if (!targetM) return;
+
+          const filtered = targetM.notes.filter(
+            (n) => !isSameRationalPosition(n.positionInMeasure, rational)
+          );
+
+          const kindMap: Record<string, NoteType> = {
+            '1': 'don',
+            '2': 'ka',
+            '3': 'big_don',
+            '4': 'big_ka',
+          };
+          const nType = selectedNoteTool as '1' | '2' | '3' | '4';
+
+          const newNote: NoteModel = {
+            id: `note-${measureIndex}-${time.toFixed(4)}-${Math.random().toString(36).substring(2, 6)}`,
+            type: nType,
+            kind: kindMap[nType] || 'don',
+            time,
+            audioTime: time - (chart.headers.offset || 0),
+            beat: targetM.startBeat + rational.fraction * ((targetM.numerator * 4) / targetM.denominator),
+            measureIndex,
+            positionInMeasure: rational,
+            bpm: (targetM as any).initialBpm || 120,
+            scroll: 1.0,
+          };
+
+          const updatedNotes = [...filtered, newNote].sort(
+            (a, b) => a.positionInMeasure.fraction - b.positionInMeasure.fraction
+          );
+
+          const updatedCourse: CourseModel = {
+            ...currentCourse,
+            measures: currentCourse.measures.map((m, idx) => {
+              if (idx !== measureIndex) return m;
+              return { ...m, notes: updatedNotes };
+            }),
+          };
+
+          const allNotes: NoteModel[] = [];
+          for (const m of updatedCourse.measures) {
+            allNotes.push(...m.notes);
+          }
+          updatedCourse.notes = allNotes.sort((a, b) => a.time - b.time);
+
+          const updatedCourses: Record<number, CourseModel> = {
+            ...chart.courses,
+            [activeCourseKey]: updatedCourse,
+          };
+          const newChart: ChartModel = {
+            ...chart,
+            courses: updatedCourses,
+            activeCourseKey,
+            activeCourse: updatedCourse,
+          };
+
+          pushHistory(newChart);
+          return;
+        }
       }
-      // 2. GOGO Tab: Insert GOGOSTART or GOGOEND at snapped position
-      else if (selectedTab === 'gogo') {
+
+      // 2. GOGO, BPM, MEASURE tabs
+      const snapResult = snapTimelineXToGrid(timelineX, timeline, timelineLayout, selectedGrid);
+      if (!snapResult) return;
+      const { measureIndex, rational, time } = snapResult;
+      setCurrentTime(time);
+      setSelectedMeasureForEdit(measureIndex);
+
+      if (selectedTab === 'gogo') {
         insertCommandAtPosition(gogoMode, '', measureIndex, rational, time);
-      }
-      // 3. BPM Tab: Insert #BPMCHANGE at snapped position
-      else if (selectedTab === 'bpm') {
+      } else if (selectedTab === 'bpm') {
         if (bpmInput > 0 && isFinite(bpmInput)) {
           insertCommandAtPosition('BPMCHANGE', String(bpmInput), measureIndex, rational, time);
         }
-      }
-      // 4. MEASURE Tab: Insert #MEASURE strictly at measure start position
-      else if (selectedTab === 'measure') {
+      } else if (selectedTab === 'measure') {
         if (measureInput && measureInput.includes('/')) {
           const targetMeasure = currentCourse.measures[measureIndex];
-          const measureStartRational: RationalPosition = { numerator: 0, denominator: 1, fraction: 0 };
-          setCurrentTime(targetMeasure.startTime);
-          insertCommandAtPosition('MEASURE', measureInput, measureIndex, measureStartRational, targetMeasure.startTime);
+          if (targetMeasure) {
+            const measureStartRational: RationalPosition = { numerator: 0, denominator: 1, fraction: 0 };
+            setCurrentTime(targetMeasure.startTime);
+            insertCommandAtPosition('MEASURE', measureInput, measureIndex, measureStartRational, targetMeasure.startTime);
+          }
         }
       }
     },
@@ -473,11 +712,14 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
       selectedGrid,
       timeline,
       timelineLayout,
+      pendingSpecialNote,
+      balloonHitCount,
       gogoMode,
       bpmInput,
       measureInput,
       insertCommandAtPosition,
       pushHistory,
+      showNotification,
     ]
   );
 
@@ -524,6 +766,7 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
   // Load a new TJA text
   const loadTja = useCallback((tjaText: string, newFileName?: string) => {
     try {
+      setPendingSpecialNote(null);
       const parsed = parseTJA(tjaText);
       const initialKey = getPreferredCourseKey(parsed);
       historyRef.current = [tjaText];
@@ -544,6 +787,7 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
   const applyTjaText = useCallback(
     (tjaText: string): { success: boolean; error?: string } => {
       try {
+        setPendingSpecialNote(null);
         const validation = validateTJARaw(tjaText);
         if (validation.errors.length > 0) {
           const firstErr = validation.errors[0];
@@ -582,7 +826,7 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
   return {
     chart,
     activeCourseKey,
-    setActiveCourseKey,
+    setActiveCourseKey: handleSetActiveCourseKey,
     availableCourseKeys,
     activeCourse,
     timeline,
@@ -599,6 +843,13 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
     fileName,
     canUndo,
     canRedo,
+    pendingSpecialNote,
+    cancelPendingSpecialNote,
+    balloonHitCount,
+    setBalloonHitCount,
+    notification,
+    clearNotification,
+    showNotification,
     gogoMode,
     bpmInput,
     measureInput,

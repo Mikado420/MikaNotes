@@ -226,7 +226,8 @@ export function snapTimelineXToGrid(
   x: number,
   timeline: Timeline,
   layout: TimelineLayout,
-  gridDivision: GridDivision
+  gridDivision: GridDivision,
+  options?: { allowMeasureEnd?: boolean }
 ): {
   measure: MeasureModel | null;
   measureIndex: number;
@@ -245,6 +246,28 @@ export function snapTimelineXToGrid(
 
   const div = gridDivision;
   const step = Math.round(rawProgress * div);
+
+  // If allowMeasureEnd is requested (e.g. for roll/balloon end positions)
+  if (options?.allowMeasureEnd && step === div) {
+    if (targetLayout.index + 1 < layout.measures.length) {
+      // Transition to start of the next measure (0/1)
+      const nextLayout = layout.measures[targetLayout.index + 1];
+      const rational: RationalPosition = {
+        numerator: 0,
+        denominator: 1,
+        fraction: 0,
+      };
+      const time = timeline.positionToTime(nextLayout.measure, rational);
+      return {
+        measure: nextLayout.measure,
+        measureIndex: nextLayout.index,
+        snappedX: nextLayout.startX,
+        rational,
+        time,
+      };
+    }
+  }
+
   const clampedStep = Math.min(div - 1, Math.max(0, step));
   const g = gcd(clampedStep, div);
   const numerator = clampedStep / g;
