@@ -39,6 +39,7 @@ import {
   eraseSpecialNoteAtPosition,
 } from './special-notes';
 import { registerUnsavedWorkGuard } from '../pwa/usePWAUpdate';
+import { useAudioEngine, AudioEngineState, AudioEngine } from '../audio';
 
 export interface UseEditorOptions {
   initialTjaText: string;
@@ -150,15 +151,34 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
     return chart.courses[activeCourseKey] || chart.activeCourse || Object.values(chart.courses)[0];
   }, [chart, activeCourseKey]);
 
+  // Phase 4-1: Audio Engine Foundation
+  const {
+    audioEngine,
+    audioState,
+    loadAudioFile: engineLoadAudioFile,
+    play: audioPlay,
+    pause: audioPause,
+    seek: audioSeek,
+    setVolume,
+    setPlaybackRate,
+  } = useAudioEngine();
+
+  const isAudioLoaded = audioState.loadState === 'loaded';
+  const chartOffset = chart.headers.offset || 0;
+
   // Derived Timeline for fast binary-search range queries
   const timeline: Timeline = useMemo(() => {
     return new Timeline(activeCourse);
   }, [activeCourse]);
 
-  // Derived total duration
+  // Derived total duration (accounting for audio length if loaded)
   const totalDuration: number = useMemo(() => {
-    return timeline.getDuration();
-  }, [timeline]);
+    const chartDuration = timeline.getDuration();
+    if (isAudioLoaded && audioState.duration > 0) {
+      return Math.max(chartDuration, audioState.duration + chartOffset);
+    }
+    return chartDuration;
+  }, [timeline, isAudioLoaded, audioState.duration, chartOffset]);
 
   // Layout calculation
   const timelineLayout: TimelineLayout = useMemo(() => {
@@ -178,18 +198,27 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
 
   const stopPlayback = useCallback(() => {
     setIsPlaying(false);
+    if (isAudioLoaded) {
+      audioPause();
+    }
     if (animationFrameIdRef.current) {
       cancelAnimationFrame(animationFrameIdRef.current);
       animationFrameIdRef.current = null;
     }
     lastFrameTimeRef.current = null;
-  }, []);
+  }, [isAudioLoaded, audioPause]);
 
-  const startPlayback = useCallback(() => {
+  const startPlayback = useCallback(async () => {
     setPendingSpecialNote(null);
-    setIsPlaying(true);
-    lastFrameTimeRef.current = performance.now();
-  }, []);
+    if (isAudioLoaded) {
+      const targetAudioTime = currentTime - chartOffset;
+      audioSeek(targetAudioTime);
+      await audioPlay();
+    } else {
+      setIsPlaying(true);
+      lastFrameTimeRef.current = performance.now();
+    }
+  }, [isAudioLoaded, currentTime, chartOffset, audioSeek, audioPlay]);
 
   const togglePlayback = useCallback(() => {
     if (isPlaying) {
@@ -198,13 +227,38 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
       // If at the end, restart from beginning
       if (currentTime >= totalDuration) {
         setCurrentTime(0);
+        if (isAudioLoaded) {
+          audioSeek(0 - chartOffset);
+        }
       }
       startPlayback();
     }
-  }, [isPlaying, currentTime, totalDuration, startPlayback, stopPlayback]);
+  }, [isPlaying, currentTime, totalDuration, isAudioLoaded, chartOffset, audioSeek, startPlayback, stopPlayback]);
 
+  // Synchronize isPlaying with audioState when audio is loaded
   useEffect(() => {
-    if (!isPlaying) return;
+    if (isAudioLoaded) {
+      setIsPlaying(audioState.isPlaying);
+    }
+  }, [isAudioLoaded, audioState.isPlaying]);
+
+  // Audio currentTime -> Timeline currentTime synchronization during playback
+  useEffect(() => {
+    if (!isAudioLoaded) return;
+
+    const unsub = audioEngine.subscribeTime((audioTime) => {
+      if (audioState.isPlaying) {
+        const timelineTime = audioTime + chartOffset;
+        setCurrentTime(Math.max(0, timelineTime));
+      }
+    });
+
+    return unsub;
+  }, [isAudioLoaded, audioEngine, audioState.isPlaying, chartOffset]);
+
+  // Fallback animation frame loop for timeline-only playback (when no audio is loaded)
+  useEffect(() => {
+    if (!isPlaying || isAudioLoaded) return;
 
     const loop = (now: number) => {
       if (lastFrameTimeRef.current !== null) {
@@ -229,7 +283,7 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
         cancelAnimationFrame(animationFrameIdRef.current);
       }
     };
-  }, [isPlaying, totalDuration, stopPlayback]);
+  }, [isPlaying, isAudioLoaded, totalDuration, stopPlayback]);
 
   // Commit changes to history with Core re-parsing to guarantee unified timing & events
   const pushHistory = useCallback(
@@ -410,10 +464,34 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
     setZoom(Math.max(50, Math.min(400, val)));
   }, []);
 
-  // Time seeking
-  const seekTime = useCallback((time: number) => {
-    setCurrentTime(Math.max(0, Math.min(totalDuration, time)));
-  }, [totalDuration]);
+  // Time seeking (synchronizing with audio when loaded)
+  const seekTime = useCallback(
+    (time: number) => {
+      const safeTime = Math.max(0, Math.min(totalDuration, isNaN(time) || !isFinite(time) ? 0 : time));
+      setCurrentTime(safeTime);
+      if (isAudioLoaded) {
+        const targetAudioTime = safeTime - chartOffset;
+        audioSeek(targetAudioTime);
+      }
+    },
+    [totalDuration, isAudioLoaded, chartOffset, audioSeek]
+  );
+
+  // Audio file import
+  const loadAudioFile = useCallback(
+    async (file: File) => {
+      try {
+        stopPlayback();
+        await engineLoadAudioFile(file);
+        seekTime(0);
+        showNotification(`音源を読み込みました: ${file.name}`, 'success');
+      } catch (err: any) {
+        console.error('Failed to load audio file:', err);
+        showNotification(`音源読み込みエラー: ${err?.message || String(err)}`, 'error');
+      }
+    },
+    [stopPlayback, engineLoadAudioFile, seekTime, showNotification]
+  );
 
   // Measure seeking (jump playhead to measure start)
   const seekToMeasure = useCallback(
@@ -630,7 +708,7 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
           if (!snapResult) return;
 
           const { measureIndex, rational, time } = snapResult;
-          setCurrentTime(time);
+          seekTime(time);
           setSelectedMeasureForEdit(measureIndex);
 
           // Check collision: cannot place regular notes on endpoints or inside existing rolls / balloons
@@ -717,7 +795,7 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
       const snapResult = snapTimelineXToGrid(timelineX, timeline, timelineLayout, selectedGrid);
       if (!snapResult) return;
       const { measureIndex, rational, time } = snapResult;
-      setCurrentTime(time);
+      seekTime(time);
       setSelectedMeasureForEdit(measureIndex);
 
       if (selectedTab === 'gogo') {
@@ -731,7 +809,7 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
           const targetMeasure = currentCourse.measures[measureIndex];
           if (targetMeasure) {
             const measureStartRational: RationalPosition = { numerator: 0, denominator: 1, fraction: 0 };
-            setCurrentTime(targetMeasure.startTime);
+            seekTime(targetMeasure.startTime);
             insertCommandAtPosition('MEASURE', measureInput, measureIndex, measureStartRational, targetMeasure.startTime);
           }
         }
@@ -750,6 +828,7 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
       gogoMode,
       bpmInput,
       measureInput,
+      seekTime,
       insertCommandAtPosition,
       pushHistory,
       showNotification,
@@ -909,5 +988,10 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
     loadTja,
     applyTjaText,
     pushHistory,
+    audioEngine,
+    audioState,
+    loadAudioFile,
+    setVolume,
+    setPlaybackRate,
   };
 }

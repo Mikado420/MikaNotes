@@ -19,6 +19,7 @@ import {
   Check,
   FileCode,
   Layers,
+  Music,
 } from 'lucide-react';
 
 const COURSE_LABELS: Record<number, string> = {
@@ -46,6 +47,11 @@ interface EditorHeaderProps {
   availableCourseKeys?: number[];
   onSelectCourseKey?: (key: number) => void;
   onOpenTextEditor?: () => void;
+  audioState?: {
+    loadState: 'unloaded' | 'loading' | 'loaded' | 'error';
+    fileName: string | null;
+  };
+  onLoadAudioFile?: (file: File) => void;
 }
 
 /**
@@ -82,6 +88,8 @@ export const EditorHeader: React.FC<EditorHeaderProps> = ({
   availableCourseKeys = [3],
   onSelectCourseKey,
   onOpenTextEditor,
+  audioState,
+  onLoadAudioFile,
 }) => {
   const [isEditingName, setIsEditingName] = useState(false);
   const [nameInput, setNameInput] = useState(fileName);
@@ -192,8 +200,51 @@ export const EditorHeader: React.FC<EditorHeaderProps> = ({
         </div>
       </div>
 
-      {/* Right: TJA Text Editor button, Undo, Redo, Settings, Menu */}
+      {/* Right: Audio File Import, TJA Text Editor button, Undo, Redo, Settings, Menu */}
       <div className="flex items-center gap-0.5 sm:gap-1.5 shrink-0">
+        {onLoadAudioFile && (
+          <div className="flex items-center mr-0.5 sm:mr-1">
+            <input
+              id="audio-file-input"
+              type="file"
+              accept="audio/*,.ogg,.mp3,.wav,.m4a"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) {
+                  onLoadAudioFile(file);
+                  e.target.value = '';
+                }
+              }}
+            />
+            <button
+              id="btn-import-audio"
+              onClick={() => document.getElementById('audio-file-input')?.click()}
+              className={`flex items-center gap-1 h-7 px-1.5 sm:px-2 rounded border text-xs font-medium transition-all shadow-sm active:scale-95 touch-manipulation ${
+                audioState?.loadState === 'loaded'
+                  ? 'bg-emerald-950/60 border-emerald-600/50 text-emerald-300 hover:bg-emerald-900/60'
+                  : audioState?.loadState === 'loading'
+                  ? 'bg-amber-950/60 border-amber-600/50 text-amber-300 animate-pulse'
+                  : 'bg-slate-900/80 border-slate-700/80 text-slate-300 hover:bg-slate-800'
+              }`}
+              title={
+                audioState?.loadState === 'loaded'
+                  ? `音源ロード済み: ${audioState.fileName || '音源'} (クリックで差し替え)`
+                  : '音源ファイルを選択 (OGG/MP3/WAV)'
+              }
+            >
+              <Music className={`w-3.5 h-3.5 shrink-0 ${audioState?.loadState === 'loaded' ? 'text-emerald-400' : 'text-slate-400'}`} />
+              <span className="hidden xs:inline max-w-[65px] sm:max-w-[110px] truncate">
+                {audioState?.loadState === 'loaded'
+                  ? audioState.fileName || '音源'
+                  : audioState?.loadState === 'loading'
+                  ? '読込中...'
+                  : '音源読込'}
+              </span>
+            </button>
+          </div>
+        )}
+
         {onOpenTextEditor && (
           <button
             id="btn-open-tja-editor"

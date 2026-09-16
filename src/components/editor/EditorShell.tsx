@@ -31,9 +31,41 @@ export const EditorShell: React.FC<EditorShellProps> = ({
     initialFileName,
   });
 
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    const file = e.dataTransfer.files?.[0];
+    if (!file) return;
+
+    const lowerName = file.name.toLowerCase();
+    if (lowerName.endsWith('.tja')) {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const text = ev.target?.result;
+        if (typeof text === 'string') {
+          editor.loadTja(text, file.name);
+        }
+      };
+      reader.readAsText(file);
+    } else if (
+      file.type.startsWith('audio/') ||
+      lowerName.endsWith('.ogg') ||
+      lowerName.endsWith('.mp3') ||
+      lowerName.endsWith('.wav') ||
+      lowerName.endsWith('.m4a')
+    ) {
+      editor.loadAudioFile(file);
+    }
+  };
+
   return (
     <div
       id="mikanotes-editor-shell"
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
       className="h-[100dvh] w-full flex flex-col overflow-hidden bg-[#070b14] text-slate-100 select-none font-sans"
     >
       {/* 1. Header */}
@@ -54,6 +86,8 @@ export const EditorShell: React.FC<EditorShellProps> = ({
         availableCourseKeys={editor.availableCourseKeys}
         onSelectCourseKey={editor.setActiveCourseKey}
         onOpenTextEditor={() => setIsTextEditorOpen(true)}
+        audioState={editor.audioState}
+        onLoadAudioFile={editor.loadAudioFile}
       />
 
       {/* 2. Main Visual Multi-Lane Timeline */}
@@ -111,6 +145,8 @@ export const EditorShell: React.FC<EditorShellProps> = ({
           setIsMenuOpen(false);
           setIsTextEditorOpen(true);
         }}
+        audioState={editor.audioState}
+        onLoadAudioFile={editor.loadAudioFile}
       />
 
       {/* 5. TJA Text Editor Modal */}
