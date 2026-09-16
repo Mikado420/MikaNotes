@@ -15,6 +15,7 @@ export function useTimelineTap(onTap?: (timelineX: number) => void) {
   const pointerStartRef = useRef<{ x: number; y: number; time: number; pointerId: number } | null>(null);
   const isDraggingRef = useRef<boolean>(false);
   const lastHandledTapTimeRef = useRef<number>(0);
+  const lastDragOrCancelTimeRef = useRef<number>(0);
 
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     // Only handle primary pointer (first touch or main mouse button)
@@ -35,6 +36,7 @@ export function useTimelineTap(onTap?: (timelineX: number) => void) {
     // If movement exceeds 8 pixels in any direction, it's a drag / swipe to scroll
     if (Math.hypot(dx, dy) > 8) {
       isDraggingRef.current = true;
+      lastDragOrCancelTimeRef.current = Date.now();
     }
   };
 
@@ -47,6 +49,7 @@ export function useTimelineTap(onTap?: (timelineX: number) => void) {
 
     // If dragged or held for too long (> 500ms), it's a scroll gesture or long-press, not a tap
     if (wasDragging || duration > 500) {
+      lastDragOrCancelTimeRef.current = Date.now();
       return;
     }
 
@@ -62,12 +65,17 @@ export function useTimelineTap(onTap?: (timelineX: number) => void) {
   const handlePointerCancel = () => {
     pointerStartRef.current = null;
     isDraggingRef.current = false;
+    lastDragOrCancelTimeRef.current = Date.now();
   };
 
   const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!onTap) return;
     // Prevent double-triggering if pointerUp already handled the tap recently
     if (Date.now() - lastHandledTapTimeRef.current < 400) {
+      return;
+    }
+    // Prevent synthetic click if user was dragging or pointer was cancelled recently
+    if (Date.now() - lastDragOrCancelTimeRef.current < 400) {
       return;
     }
     const rect = e.currentTarget.getBoundingClientRect();

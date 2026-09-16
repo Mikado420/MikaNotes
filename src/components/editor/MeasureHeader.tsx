@@ -3,9 +3,10 @@
  * Renders measure numbers (0, 1, 2... or offset) with highlighted active measure badge
  */
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useCallback } from 'react';
 import { TimelineLayout } from '../../editor/editor-types';
-import { findVisibleMeasureLayouts } from '../../editor/coordinate-mapping';
+import { findVisibleMeasureLayouts, findMeasureLayoutAtX } from '../../editor/coordinate-mapping';
+import { useTimelineTap } from './use-timeline-tap';
 
 interface MeasureHeaderProps {
   layout: TimelineLayout;
@@ -29,10 +30,24 @@ export const MeasureHeader: React.FC<MeasureHeaderProps> = ({
     return layout.measures;
   }, [layout.measures, visibleStartX, visibleEndX]);
 
+  const handleTap = useCallback(
+    (timelineX: number) => {
+      if (!onSelectMeasure) return;
+      const measure = findMeasureLayoutAtX(timelineX, layout.measures);
+      if (measure) {
+        onSelectMeasure(measure.index);
+      }
+    },
+    [onSelectMeasure, layout.measures]
+  );
+
+  const tapHandlers = useTimelineTap(handleTap);
+
   return (
     <div
       id="measure-header-lane"
-      className="relative h-6 bg-[#080d17] border-b border-slate-800 text-xs font-mono select-none flex"
+      {...tapHandlers}
+      className="relative h-6 bg-[#080d17] border-b border-slate-800 text-xs font-mono select-none flex cursor-pointer"
       style={{ width: `${layout.totalWidth}px` }}
     >
       {visibleMeasures.map((m) => {
@@ -42,8 +57,7 @@ export const MeasureHeader: React.FC<MeasureHeaderProps> = ({
           <div
             key={m.index}
             id={`measure-header-${m.index}`}
-            onClick={() => onSelectMeasure?.(m.index)}
-            className={`absolute top-0 bottom-0 flex items-center border-l border-slate-700/60 cursor-pointer transition-colors ${
+            className={`absolute top-0 bottom-0 flex items-center border-l border-slate-700/60 pointer-events-none transition-colors ${
               isActive ? 'bg-blue-900/40' : 'hover:bg-slate-800/30'
             }`}
             style={{
