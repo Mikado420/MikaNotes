@@ -106,3 +106,32 @@ export function isSameRationalPosition(
   return approxEqual(fracA, fracB, 0.0001);
 }
 
+/**
+ * Compare two rational positions mathematically.
+ * Returns negative if a < b, 0 if a === b, positive if a > b.
+ */
+export function compareRationalPositions(
+  a: { numerator?: number; denominator?: number; fraction?: number },
+  b: { numerator?: number; denominator?: number; fraction?: number }
+): number {
+  if (
+    typeof a.numerator === 'number' &&
+    typeof a.denominator === 'number' &&
+    typeof b.numerator === 'number' &&
+    typeof b.denominator === 'number' &&
+    a.denominator > 0 &&
+    b.denominator > 0
+  ) {
+    const crossA = Math.round(a.numerator) * Math.round(b.denominator);
+    const crossB = Math.round(b.numerator) * Math.round(a.denominator);
+    if (crossA !== crossB) {
+      return crossA - crossB;
+    }
+  }
+
+  const fracA = typeof a.fraction === 'number' ? a.fraction : (a.numerator ?? 0) / (a.denominator || 1);
+  const fracB = typeof b.fraction === 'number' ? b.fraction : (b.numerator ?? 0) / (b.denominator || 1);
+  if (Math.abs(fracA - fracB) < 1e-7) return 0;
+  return fracA - fracB;
+}
+

@@ -8,6 +8,7 @@ import {
   CourseModel,
   RationalPosition,
   RollModel,
+  compareRationalPositions,
   isSameRationalPosition,
 } from '../core';
 import { NoteToolType } from './editor-types';
@@ -95,7 +96,7 @@ export function validateSpecialPlacement(
   const isMeasureOrderInvalid =
     endMeasureIndex < pending.startMeasureIndex ||
     (endMeasureIndex === pending.startMeasureIndex &&
-      endPosition.fraction <= pending.startPosition.fraction + 1e-7);
+      compareRationalPositions(endPosition, pending.startPosition) <= 0);
 
   if (isTimeOrderInvalid || isMeasureOrderInvalid) {
     return { valid: false, error: '終了位置は開始位置より後にしてください' };
@@ -228,17 +229,14 @@ export function createSpecialNote(
       scroll: 1.0,
     };
 
-    const updatedBalloons = [...course.balloons, newBalloon].sort((a, b) => {
-      if (a.startMeasureIndex !== b.startMeasureIndex) {
-        return a.startMeasureIndex - b.startMeasureIndex;
-      }
-      return a.startPosition.fraction - b.startPosition.fraction;
-    });
-
-    // Re-index balloons strictly sequentially (0, 1, 2, ...)
-    updatedBalloons.forEach((b, idx) => {
-      b.balloonIndex = idx;
-    });
+    const updatedBalloons = [...course.balloons, newBalloon]
+      .sort((a, b) => {
+        if (a.startMeasureIndex !== b.startMeasureIndex) {
+          return a.startMeasureIndex - b.startMeasureIndex;
+        }
+        return compareRationalPositions(a.startPosition, b.startPosition);
+      })
+      .map((b, idx) => ({ ...b, balloonIndex: idx }));
 
     const allSpecial = [...course.rolls, ...updatedBalloons];
     const updatedMeasures = course.measures.map((m) => ({
@@ -280,7 +278,7 @@ export function createSpecialNote(
       if (a.startMeasureIndex !== b.startMeasureIndex) {
         return a.startMeasureIndex - b.startMeasureIndex;
       }
-      return a.startPosition.fraction - b.startPosition.fraction;
+      return compareRationalPositions(a.startPosition, b.startPosition);
     });
 
     const allSpecial = [...updatedRolls, ...course.balloons];
@@ -326,11 +324,9 @@ export function eraseSpecialNoteAtPosition(
   });
 
   if (balloonIdx !== -1) {
-    const updatedBalloons = course.balloons.filter((_, idx) => idx !== balloonIdx);
-    // Re-index remaining balloons
-    updatedBalloons.forEach((b, idx) => {
-      b.balloonIndex = idx;
-    });
+    const updatedBalloons = course.balloons
+      .filter((_, idx) => idx !== balloonIdx)
+      .map((b, idx) => ({ ...b, balloonIndex: idx }));
 
     const allSpecial = [...course.rolls, ...updatedBalloons];
     const updatedMeasures = course.measures.map((m) => ({

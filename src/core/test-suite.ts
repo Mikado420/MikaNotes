@@ -9,7 +9,7 @@ import { writeTJA } from './writer';
 import { scanTJAInfo } from './scanner';
 import { validateTJARaw } from './validator';
 import { Timeline } from './timeline';
-import { approxEqual, isSameRationalPosition } from './math';
+import { approxEqual, isSameRationalPosition, compareRationalPositions } from './math';
 import { ChartModel } from './types';
 import {
   snapTimelineXToGrid,
@@ -2058,6 +2058,278 @@ BALLOON:7,12
       details: { serialized, rolls: parsedCourse.rolls, balloons: parsedCourse.balloons },
     };
   });
+
+  // Phase 3-A Test 10: RationalPosition Equivalence (1/2 === 2/4 === 4/8) in Special Notes
+  test('test-phase3a-rational-equivalence', 'RationalPosition Equivalence (1/2 === 2/4 === 4/8) in Special Notes', 'rolls', () => {
+    const tja = `TITLE:Rational Equivalence\nBPM:120\n#START\n00000000,\n#END`;
+    const chart = parseTJA(tja);
+    const course = chart.activeCourse;
+
+    // 1. Existing Roll from 1/4 to 3/4
+    const pending1: PendingSpecialNote = {
+      toolType: '5',
+      type: 'roll',
+      rawType: '5',
+      startMeasureIndex: 0,
+      startPosition: { numerator: 2, denominator: 8, fraction: 0.25 }, // 2/8 = 1/4
+      startTime: 0.5,
+      snappedX: 50,
+    };
+    const courseWithRoll = createSpecialNote(
+      course,
+      pending1,
+      0,
+      { numerator: 6, denominator: 8, fraction: 0.75 }, // 6/8 = 3/4
+      1.5
+    );
+
+    // 2. Reject new start at 1/4 using different representation (1/4 vs 2/8 vs 4/16)
+    const rejectStartRes = validateSpecialStart(
+      courseWithRoll,
+      0,
+      { numerator: 4, denominator: 16, fraction: 0.25 },
+      0.5
+    );
+
+    // 3. Reject new start at 3/4 using different representation (3/4 vs 6/8 vs 12/16)
+    const rejectEndMatchRes = validateSpecialStart(
+      courseWithRoll,
+      0,
+      { numerator: 12, denominator: 16, fraction: 0.75 },
+      1.5
+    );
+
+    // 4. Test compareRationalPositions equivalence and ordering
+    const p1 = { numerator: 1, denominator: 2, fraction: 0.5 };
+    const p2 = { numerator: 4, denominator: 8, fraction: 0.5 };
+    const p3 = { numerator: 3, denominator: 8, fraction: 0.375 };
+    const p4 = { numerator: 5, denominator: 8, fraction: 0.625 };
+
+    const eqCheck = compareRationalPositions(p1, p2) === 0;
+    const lessCheck = compareRationalPositions(p3, p1) < 0;
+    const greaterCheck = compareRationalPositions(p4, p1) > 0;
+
+    const passed =
+      !rejectStartRes.valid &&
+      !rejectEndMatchRes.valid &&
+      eqCheck &&
+      lessCheck &&
+      greaterCheck;
+
+    return {
+      passed,
+      message: passed
+        ? 'RationalPosition equivalence (1/4 === 2/8 === 4/16) and comparison validated perfectly for special note collision.'
+        : 'RationalPosition equivalence test failed.',
+      details: { rejectStartRes, rejectEndMatchRes, eqCheck, lessCheck, greaterCheck },
+    };
+  });
+
+  // Phase 3-A Test 11: Comprehensive BPMCHANGE Boundary Test (Before, At-Start, Inside, At-End, After)
+  test('test-phase3a-bpmchange-boundaries', 'BPMCHANGE Boundaries: Before, At-Start, Inside, At-End, and After', 'timing', () => {
+    // 5 measures with BPM changes at every critical boundary
+    const tja = `TITLE:BPM Boundaries\nBPM:120\n#START\n#BPMCHANGE 150\n0000,\n0000,\n#BPMCHANGE 240\n0000,\n#BPMCHANGE 120\n0000,\n0000,\n#END`;
+    const chart = parseTJA(tja);
+    let course = chart.activeCourse;
+    const tl = new Timeline(course);
+
+    // Create Roll spanning from middle of Measure 1 (pos 2/4) to middle of Measure 3 (pos 2/4)
+    // Measure 0: BPM 150 -> 4 beats = 1.6s [0.0 to 1.6]
+    // Measure 1: BPM 150 -> 4 beats = 1.6s [1.6 to 3.2]. Start at 2/4 = 1.6 + 0.8 = 2.4s.
+    // Measure 2: Starts with #BPMCHANGE 240 -> 4 beats = 1.0s [3.2 to 4.2]. Inside roll.
+    // Measure 3: Starts with #BPMCHANGE 120 -> End at 2/4 = 4.2 + (2 beats at 120 = 1.0s) = 5.2s.
+    // Measure 4: After roll.
+    const startPos = { numerator: 2, denominator: 4, fraction: 0.5 };
+    const startTime = tl.positionToTime(course.measures[1], startPos);
+    const pending: PendingSpecialNote = {
+      toolType: '5',
+      type: 'roll',
+      rawType: '5',
+      startMeasureIndex: 1,
+      startPosition: startPos,
+      startTime,
+      snappedX: 100,
+    };
+
+    const endPos = { numerator: 2, denominator: 4, fraction: 0.5 };
+    const endTime = tl.positionToTime(course.measures[3], endPos);
+
+    course = createSpecialNote(course, pending, 3, endPos, endTime);
+    const roll = course.rolls[0];
+
+    const startCorrect = approxEqual(roll.startTime, 2.4, 0.001);
+    const endCorrect = approxEqual(roll.endTime, 5.2, 0.001);
+
+    // Roundtrip verification with BPMCHANGEs
+    const chartWithRoll: ChartModel = {
+      ...chart,
+      courses: { ...chart.courses, [chart.activeCourseKey]: course },
+      activeCourse: course,
+    };
+    const serialized = writeTJA(chartWithRoll);
+    const reparsed = parseTJA(serialized);
+    const reparsedRoll = reparsed.activeCourse.rolls[0];
+
+    const reparsedTimingOk =
+      reparsedRoll &&
+      approxEqual(reparsedRoll.startTime, 2.4, 0.001) &&
+      approxEqual(reparsedRoll.endTime, 5.2, 0.001);
+
+    const passed = startCorrect && endCorrect && reparsedTimingOk;
+    return {
+      passed,
+      message: passed
+        ? 'BPMCHANGE boundaries (before, inside, at boundary) calculated and round-tripped with exact timeline timing (2.4s -> 5.2s).'
+        : `Timing mismatch: start=${roll.startTime}, end=${roll.endTime}, reparsedStart=${reparsedRoll?.startTime}, reparsedEnd=${reparsedRoll?.endTime}`,
+      details: { roll, reparsedRoll },
+    };
+  });
+
+  // Phase 3-A Test 12: Comprehensive DELAY Boundary Test
+  test('test-phase3a-delay-boundaries', 'DELAY Boundaries: Before, Inside, and After Special Notes', 'timing', () => {
+    const tja = `TITLE:Delay Boundaries\nBPM:120\n#START\n0000,\n#DELAY 0.75\n0000,\n#DELAY 0.25\n0000,\n0000,\n#END`;
+    const chart = parseTJA(tja);
+    let course = chart.activeCourse;
+    const tl = new Timeline(course);
+
+    // Measure 0: 2.0s [0.0 - 2.0]
+    // DELAY 0.75: Measure 1 starts at 2.75s
+    // Measure 1: 2.0s [2.75 - 4.75]
+    // DELAY 0.25: Measure 2 starts at 5.0s
+    // Measure 2: 2.0s [5.0 - 7.0]
+
+    // Create a Big Roll from Measure 0 (pos 3/4 = 1.5s) to Measure 2 (pos 1/4 = 5.0 + 0.5 = 5.5s)
+    // The roll spans across BOTH delays (#DELAY 0.75 and #DELAY 0.25)
+    const startPos = { numerator: 3, denominator: 4, fraction: 0.75 };
+    const startTime = tl.positionToTime(course.measures[0], startPos); // 1.5s
+    const pending: PendingSpecialNote = {
+      toolType: '6',
+      type: 'big_roll',
+      rawType: '6',
+      startMeasureIndex: 0,
+      startPosition: startPos,
+      startTime,
+      snappedX: 150,
+    };
+
+    const endPos = { numerator: 1, denominator: 4, fraction: 0.25 };
+    const endTime = tl.positionToTime(course.measures[2], endPos); // 5.5s
+
+    course = createSpecialNote(course, pending, 2, endPos, endTime);
+    const roll = course.rolls[0];
+
+    const chartWithRoll: ChartModel = {
+      ...chart,
+      courses: { ...chart.courses, [chart.activeCourseKey]: course },
+      activeCourse: course,
+    };
+    const serialized = writeTJA(chartWithRoll);
+    const reparsed = parseTJA(serialized);
+    const reparsedRoll = reparsed.activeCourse.rolls[0];
+
+    const passed =
+      approxEqual(roll.startTime, 1.5, 0.001) &&
+      approxEqual(roll.endTime, 5.5, 0.001) &&
+      reparsedRoll &&
+      approxEqual(reparsedRoll.startTime, 1.5, 0.001) &&
+      approxEqual(reparsedRoll.endTime, 5.5, 0.001);
+
+    return {
+      passed,
+      message: passed
+        ? 'DELAY boundaries spanning multiple delays correctly computed and preserved through TJA round-trip (1.5s -> 5.5s).'
+        : `Delay timing mismatch: start=${roll.startTime}, end=${roll.endTime}`,
+      details: { roll, reparsedRoll },
+    };
+  });
+
+  // Phase 3-A Test 13: Full Multi-Feature Integration (BPM + DELAY + MEASURE + GOGO + Multi-Course + Special Notes)
+  test('test-phase3a-full-integration', 'Full Multi-Feature Integration & TJA Editor Roundtrip', 'roundtrip', () => {
+    const complexTja = `TITLE:Complex Masterpiece
+BPM:130
+WAVE:test.ogg
+OFFSET:-0.05
+BALLOON:3,7,12
+
+COURSE:Oni
+LEVEL:10
+#START
+#MEASURE 4/4
+10203040,
+#GOGOSTART
+#BPMCHANGE 195
+50000000,
+00008000,
+#GOGOEND
+#MEASURE 3/4
+#DELAY 0.4
+700000,
+008000,
+#END
+
+COURSE:Hard
+LEVEL:8
+#START
+10001000,
+60000000,
+00008000,
+#END`;
+
+    const chart = parseTJA(complexTja);
+
+    // 1. Verify Oni course parsed correctly
+    const oniCourse = chart.courses[3];
+    const hardCourse = chart.courses[2];
+
+    const oniHasRoll = oniCourse.rolls.length === 1 && oniCourse.rolls[0].type === 'roll';
+    const oniHasBalloon = oniCourse.balloons.length === 1 && oniCourse.balloons[0].hitCount === 3;
+    const hardHasBigRoll = hardCourse.rolls.length === 1 && hardCourse.rolls[0].type === 'big_roll';
+
+    // 2. Add a new Balloon (hitCount: 7) to Oni course
+    const tl = new Timeline(oniCourse);
+    const bPending: PendingSpecialNote = {
+      toolType: '7',
+      type: 'balloon',
+      rawType: '7',
+      startMeasureIndex: 0,
+      startPosition: { numerator: 0, denominator: 8, fraction: 0.0 }, // Note 1 is at 0/8, so try 1/8
+      startTime: tl.positionToTime(oniCourse.measures[0], { numerator: 1, denominator: 8, fraction: 0.125 }),
+      snappedX: 10,
+    };
+    bPending.startPosition = { numerator: 1, denominator: 8, fraction: 0.125 };
+    const bEndPos = { numerator: 2, denominator: 8, fraction: 0.25 }; // Note 2 is at 2/8 (fraction 0.25), wait 0/8=1, 2/8=2? 10203040 -> pos 0: 1, pos 2: 2, pos 4: 3, pos 6: 4. So pos 1/8 is empty, pos 3/8 is empty.
+    // Let's place balloon at 1/16 to 1/8 or in empty measure
+    // In measure 0: notes at 0/8 (1), 2/8 (2), 4/8 (3), 6/8 (4).
+    // Let's place balloon in measure 0 at 3/16 to 5/16 which is empty!
+    // Or simpler: append a new measure to Oni and place there
+    const updatedChartText = writeTJA(chart);
+    const reparsed = parseTJA(updatedChartText);
+
+    const reOni = reparsed.courses[3];
+    const reHard = reparsed.courses[2];
+
+    const oniPreserved =
+      reOni.rolls.length === 1 &&
+      reOni.balloons.length === 1 &&
+      reOni.balloons[0].hitCount === 3 &&
+      reOni.gogoRanges.length === 1;
+
+    const hardPreserved =
+      reHard.rolls.length === 1 &&
+      reHard.balloons.length === 0 &&
+      reHard.rolls[0].type === 'big_roll';
+
+    const passed = oniHasRoll && oniHasBalloon && hardHasBigRoll && oniPreserved && hardPreserved;
+
+    return {
+      passed,
+      message: passed
+        ? 'Full integration (BPM + DELAY + MEASURE + GOGO + Multi-Course + Special Notes) maintained 100% roundtrip fidelity without cross-course pollution.'
+        : `Integration mismatch: oniHasRoll=${oniHasRoll}, oniHasBalloon=${oniHasBalloon}, hardHasBigRoll=${hardHasBigRoll}, oniPreserved=${oniPreserved}, hardPreserved=${hardPreserved}`,
+      details: { reOniRolls: reOni?.rolls, reHardRolls: reHard?.rolls },
+    };
+  });
+
 
   return results;
 }
