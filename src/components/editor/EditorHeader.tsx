@@ -96,17 +96,17 @@ export const EditorHeader: React.FC<EditorHeaderProps> = ({
   return (
     <header
       id="mikanotes-header"
-      className="h-11 bg-[#090e18] border-b border-slate-800/80 px-3 flex items-center justify-between select-none z-30 shrink-0 text-slate-200"
+      className="h-11 bg-[#090e18] border-b border-slate-800/80 safe-pl safe-pr safe-pt px-3 flex items-center justify-between select-none z-30 shrink-0 text-slate-200"
     >
       {/* Left: Brand & File name & Course selector */}
-      <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-        <div className="flex items-center gap-1.5">
-          <span className="font-bold text-base tracking-tight text-white font-sans">
+      <div className="flex items-center gap-1.5 sm:gap-3 min-w-0">
+        <div className="flex items-center gap-1.5 shrink-0">
+          <span className="font-bold text-sm sm:text-base tracking-tight text-white font-sans">
             MikaNotes
           </span>
         </div>
 
-        <div className="flex items-center gap-1.5 text-xs text-slate-400 pl-1">
+        <div className="flex items-center gap-1 text-xs text-slate-400 pl-1 shrink-0">
           <FileText className="w-3.5 h-3.5 text-slate-400 shrink-0" />
 
           {isEditingName ? (
@@ -118,11 +118,11 @@ export const EditorHeader: React.FC<EditorHeaderProps> = ({
                 onBlur={handleFinishRename}
                 onKeyDown={(e) => e.key === 'Enter' && handleFinishRename()}
                 autoFocus
-                className="bg-slate-800 text-white text-xs px-1.5 py-0.5 rounded border border-blue-500 focus:outline-none w-28 font-mono"
+                className="bg-slate-800 text-white text-xs px-1.5 py-0.5 rounded border border-blue-500 focus:outline-none w-24 sm:w-28 font-mono"
               />
               <button
                 onClick={handleFinishRename}
-                className="text-emerald-400 hover:text-emerald-300 p-0.5"
+                className="text-emerald-400 hover:text-emerald-300 p-1 touch-manipulation"
                 title="Save name"
               >
                 <Check className="w-3.5 h-3.5" />
@@ -137,23 +137,23 @@ export const EditorHeader: React.FC<EditorHeaderProps> = ({
               }}
               title="Click to rename"
             >
-              <span className="font-mono text-slate-300 text-xs truncate max-w-[100px] sm:max-w-[160px]">
+              <span className="font-mono text-slate-300 text-xs truncate max-w-[80px] sm:max-w-[160px]">
                 {fileName}
               </span>
-              <Pencil className="w-3 h-3 text-slate-500 group-hover:text-slate-300 opacity-80" />
+              <Pencil className="w-3 h-3 text-slate-500 group-hover:text-slate-300 opacity-80 shrink-0" />
             </div>
           )}
         </div>
 
         {/* Course Selector Dropdown */}
         {availableCourseKeys.length > 0 && onSelectCourseKey && (
-          <div className="flex items-center ml-1 sm:ml-2">
+          <div className="flex items-center ml-0.5 sm:ml-2 shrink-0">
             <div className="relative flex items-center">
               <select
                 id="select-course-key"
                 value={activeCourseKey}
                 onChange={(e) => onSelectCourseKey(Number(e.target.value))}
-                className="bg-slate-900 hover:bg-slate-800 text-amber-300 font-medium text-[11px] px-2 py-1 rounded border border-slate-700/80 focus:outline-none focus:border-amber-500 cursor-pointer transition-colors"
+                className="bg-slate-900 hover:bg-slate-800 text-amber-300 font-medium text-[11px] h-7 px-1.5 sm:px-2 rounded border border-slate-700/80 focus:outline-none focus:border-amber-500 cursor-pointer transition-colors touch-manipulation"
                 title="コース選択 (CourseKey)"
               >
                 {availableCourseKeys.map((cKey) => (
@@ -168,11 +168,11 @@ export const EditorHeader: React.FC<EditorHeaderProps> = ({
       </div>
 
       {/* Center: Play / Pause & Time readout */}
-      <div className="flex items-center gap-2 sm:gap-3">
+      <div className="flex items-center gap-1.5 sm:gap-3">
         <button
           id="btn-play-pause"
           onClick={onTogglePlayback}
-          className="w-7 h-7 flex items-center justify-center rounded-full hover:bg-slate-800 text-white transition-colors active:scale-95"
+          className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-800/80 hover:bg-slate-750 text-white transition-colors active:scale-95 touch-manipulation shrink-0 shadow-sm"
           title={isPlaying ? '一時停止 (Space)' : '再生 (Space)'}
         >
           {isPlaying ? (
@@ -184,24 +184,24 @@ export const EditorHeader: React.FC<EditorHeaderProps> = ({
 
         <div
           id="time-display"
-          className="font-mono text-xs sm:text-sm text-slate-300 tracking-wider flex items-center"
+          className="font-mono text-[11px] sm:text-xs md:text-sm text-slate-300 tracking-wider flex items-center whitespace-nowrap"
         >
           <span className="text-white font-medium">{formatTime(currentTime)}</span>
-          <span className="mx-1 text-slate-600">/</span>
+          <span className="mx-0.5 sm:mx-1 text-slate-600">/</span>
           <span className="text-slate-400">{formatTime(totalDuration)}</span>
         </div>
       </div>
 
       {/* Right: TJA Text Editor button, Undo, Redo, Settings, Menu */}
-      <div className="flex items-center gap-1 sm:gap-1.5">
+      <div className="flex items-center gap-0.5 sm:gap-1.5 shrink-0">
         {onOpenTextEditor && (
           <button
             id="btn-open-tja-editor"
             onClick={onOpenTextEditor}
-            className="flex items-center gap-1 px-2 sm:px-2.5 py-1 rounded bg-blue-950/60 hover:bg-blue-900/60 text-blue-300 hover:text-blue-200 border border-blue-600/40 text-xs font-medium transition-all shadow-sm active:scale-95 mr-1"
+            className="flex items-center gap-1 h-7 px-1.5 sm:px-2.5 rounded bg-blue-950/60 hover:bg-blue-900/60 text-blue-300 hover:text-blue-200 border border-blue-600/40 text-xs font-medium transition-all shadow-sm active:scale-95 touch-manipulation mr-0.5 sm:mr-1"
             title="TJAテキストエディタを開く (直接編集・検証・適用)"
           >
-            <FileCode className="w-3.5 h-3.5 text-blue-400" />
+            <FileCode className="w-3.5 h-3.5 text-blue-400 shrink-0" />
             <span className="hidden sm:inline">TJAテキスト</span>
           </button>
         )}
@@ -210,7 +210,7 @@ export const EditorHeader: React.FC<EditorHeaderProps> = ({
           id="btn-undo"
           onClick={onUndo}
           disabled={!canUndo}
-          className={`p-1.5 rounded hover:bg-slate-800 text-slate-300 transition-colors ${
+          className={`w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-800 text-slate-300 transition-colors touch-manipulation ${
             !canUndo ? 'opacity-40 cursor-not-allowed' : 'active:scale-95'
           }`}
           title="元に戻す (Ctrl+Z)"
@@ -222,7 +222,7 @@ export const EditorHeader: React.FC<EditorHeaderProps> = ({
           id="btn-redo"
           onClick={onRedo}
           disabled={!canRedo}
-          className={`p-1.5 rounded hover:bg-slate-800 text-slate-300 transition-colors ${
+          className={`w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-800 text-slate-300 transition-colors touch-manipulation ${
             !canRedo ? 'opacity-40 cursor-not-allowed' : 'active:scale-95'
           }`}
           title="やり直し (Ctrl+Y)"
@@ -230,12 +230,12 @@ export const EditorHeader: React.FC<EditorHeaderProps> = ({
           <Redo2 className="w-4 h-4" />
         </button>
 
-        <div className="w-[1px] h-4 bg-slate-800 mx-1" />
+        <div className="w-[1px] h-4 bg-slate-800 mx-0.5 sm:mx-1" />
 
         <button
           id="btn-settings"
           onClick={onOpenSettings}
-          className="p-1.5 rounded hover:bg-slate-800 text-slate-300 transition-colors active:scale-95"
+          className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-800 text-slate-300 transition-colors active:scale-95 touch-manipulation"
           title="設定"
         >
           <Settings className="w-4 h-4" />
@@ -244,7 +244,7 @@ export const EditorHeader: React.FC<EditorHeaderProps> = ({
         <button
           id="btn-menu"
           onClick={onOpenMenu}
-          className="p-1.5 rounded hover:bg-slate-800 text-slate-300 transition-colors active:scale-95"
+          className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-800 text-slate-300 transition-colors active:scale-95 touch-manipulation"
           title="メニュー (TJA読込/保存・Workbench)"
         >
           <Menu className="w-4 h-4" />

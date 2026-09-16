@@ -6,18 +6,23 @@
 import React, { useMemo } from 'react';
 import { TimelineLayout } from '../../editor/editor-types';
 import { findVisibleMeasureLayouts } from '../../editor/coordinate-mapping';
+import { useTimelineTap } from './use-timeline-tap';
 
 interface MeasureLaneProps {
   layout: TimelineLayout;
   visibleStartX?: number;
   visibleEndX?: number;
+  onTapLane?: (x: number) => void;
 }
 
 export const MeasureLane: React.FC<MeasureLaneProps> = ({
   layout,
   visibleStartX,
   visibleEndX,
+  onTapLane,
 }) => {
+  const tapHandlers = useTimelineTap(onTapLane);
+
   const visibleMeasures = useMemo(() => {
     if (visibleStartX !== undefined && visibleEndX !== undefined) {
       return findVisibleMeasureLayouts(visibleStartX, visibleEndX, layout.measures);
@@ -28,8 +33,9 @@ export const MeasureLane: React.FC<MeasureLaneProps> = ({
   return (
     <div
       id="measure-lane"
-      className="relative h-6 bg-[#080d16] border-b border-slate-800 text-[11px] font-mono select-none overflow-hidden"
-      style={{ width: `${layout.totalWidth}px` }}
+      {...tapHandlers}
+      className="relative h-6 bg-[#080d16] border-b border-slate-800 text-[11px] font-mono select-none overflow-hidden cursor-pointer touch-pan-x-scroll"
+      style={{ width: `${layout.totalWidth}px`, touchAction: 'pan-x' }}
     >
       {/* Measure time signature labels */}
       {visibleMeasures.map((m) => {

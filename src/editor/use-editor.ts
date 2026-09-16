@@ -38,6 +38,7 @@ import {
   createSpecialNote,
   eraseSpecialNoteAtPosition,
 } from './special-notes';
+import { registerUnsavedWorkGuard } from '../pwa/usePWAUpdate';
 
 export interface UseEditorOptions {
   initialTjaText: string;
@@ -413,6 +414,37 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
   const seekTime = useCallback((time: number) => {
     setCurrentTime(Math.max(0, Math.min(totalDuration, time)));
   }, [totalDuration]);
+
+  // Measure seeking (jump playhead to measure start)
+  const seekToMeasure = useCallback(
+    (measureIndex: number) => {
+      const currentCourse = chart.courses[activeCourseKey] || chart.activeCourse;
+      if (!currentCourse) return;
+      const m = currentCourse.measures[measureIndex];
+      if (m) {
+        seekTime(m.startTime);
+        setSelectedMeasureForEdit(measureIndex);
+      }
+    },
+    [chart, activeCourseKey, seekTime]
+  );
+
+  // Phase 3-B: Mobile PWA & Unsaved Work Guards
+  useEffect(() => {
+    const unregister = registerUnsavedWorkGuard(() => canUndo);
+    return unregister;
+  }, [canUndo]);
+
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (canUndo) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [canUndo]);
 
   // Handle clicking / tapping on the timeline to place or erase notes or insert commands
   const handleTimelineTap = useCallback(
@@ -859,6 +891,7 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
     setMeasureInput,
     togglePlayback,
     seekTime,
+    seekToMeasure,
     zoomIn,
     zoomOut,
     setZoomPercent,

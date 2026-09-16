@@ -30,15 +30,16 @@ export const ZoomControl: React.FC<ZoomControlProps> = ({
       <button
         id="btn-zoom-in"
         onClick={onZoomIn}
-        className="p-1 hover:bg-slate-800 text-slate-300 hover:text-white rounded transition-colors active:scale-95"
+        className="w-8 h-8 flex items-center justify-center hover:bg-slate-800 active:bg-slate-700 text-slate-300 hover:text-white rounded transition-colors active:scale-90 touch-manipulation"
         title="ズームイン (+)"
+        aria-label="ズームイン"
       >
         <ZoomIn className="w-4 h-4" />
       </button>
 
       <span
         onClick={onResetZoom}
-        className="text-[11px] font-mono font-medium py-1 px-1 text-slate-200 cursor-pointer hover:text-blue-400 select-none"
+        className="text-[10px] font-mono font-bold py-1 px-1 text-slate-200 cursor-pointer hover:text-blue-400 active:scale-95 select-none touch-manipulation"
         title="ズームをリセット (100%)"
       >
         {Math.round(zoom)}%
@@ -47,8 +48,9 @@ export const ZoomControl: React.FC<ZoomControlProps> = ({
       <button
         id="btn-zoom-out"
         onClick={onZoomOut}
-        className="p-1 hover:bg-slate-800 text-slate-300 hover:text-white rounded transition-colors active:scale-95"
+        className="w-8 h-8 flex items-center justify-center hover:bg-slate-800 active:bg-slate-700 text-slate-300 hover:text-white rounded transition-colors active:scale-90 touch-manipulation"
         title="ズームアウト (-)"
+        aria-label="ズームアウト"
       >
         <ZoomOut className="w-4 h-4" />
       </button>

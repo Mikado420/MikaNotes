@@ -1,1 +1,61 @@
 @import "tailwindcss";
+
+:root {
+  --sat: env(safe-area-inset-top, 0px);
+  --sar: env(safe-area-inset-right, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+  --sal: env(safe-area-inset-left, 0px);
+}
+
+/* Mobile & Touch ergonomics for rhythm game charting */
+html,
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: manipulation;
+  background-color: #070b14;
+}
+
+/* Safe area padding utilities */
+.safe-pl {
+  padding-left: max(0.5rem, env(safe-area-inset-left, 0px));
+}
+
+.safe-pr {
+  padding-right: max(0.5rem, env(safe-area-inset-right, 0px));
+}
+
+.safe-pt {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+.safe-pb {
+  padding-bottom: max(0.25rem, env(safe-area-inset-bottom, 0px));
+}
+
+/* Safe area margins */
+.safe-ml {
+  margin-left: env(safe-area-inset-left, 0px);
+}
+
+.safe-mr {
+  margin-right: env(safe-area-inset-right, 0px);
+}
+
+/* Inertial horizontal scrolling for timeline and toolbars */
+.touch-pan-x-scroll {
+  touch-action: pan-x;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Prevent text highlighting during drag/scroll on mobile */
+* {
+  -webkit-tap-highlight-color: transparent;
+}

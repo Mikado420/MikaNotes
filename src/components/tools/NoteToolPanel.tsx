@@ -27,12 +27,12 @@ export const NoteToolPanel: React.FC<NoteToolPanelProps> = ({
   onChangeBalloonHitCount,
 }) => {
   return (
-    <div id="note-tool-panel" className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+    <div id="note-tool-panel" className="flex items-center gap-1.5 sm:gap-2 flex-nowrap shrink-0">
       {/* 1. ドン (Don) */}
       <button
         id="tool-don"
         onClick={() => onSelectTool('1')}
-        className={`w-12 h-14 rounded-lg flex flex-col items-center justify-between p-1.5 transition-all border ${
+        className={`w-12 h-14 rounded-lg flex flex-col items-center justify-between p-1.5 transition-all border shrink-0 touch-manipulation active:scale-95 ${
           selectedTool === '1'
             ? 'bg-slate-800/90 border-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)]'
             : 'bg-slate-900/60 border-slate-700/60 hover:bg-slate-800/60'
@@ -53,7 +53,7 @@ export const NoteToolPanel: React.FC<NoteToolPanelProps> = ({
       <button
         id="tool-ka"
         onClick={() => onSelectTool('2')}
-        className={`w-12 h-14 rounded-lg flex flex-col items-center justify-between p-1.5 transition-all border ${
+        className={`w-12 h-14 rounded-lg flex flex-col items-center justify-between p-1.5 transition-all border shrink-0 touch-manipulation active:scale-95 ${
           selectedTool === '2'
             ? 'bg-slate-800/90 border-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)]'
             : 'bg-slate-900/60 border-slate-700/60 hover:bg-slate-800/60'
@@ -74,7 +74,7 @@ export const NoteToolPanel: React.FC<NoteToolPanelProps> = ({
       <button
         id="tool-big-don"
         onClick={() => onSelectTool('3')}
-        className={`w-12 h-14 rounded-lg flex flex-col items-center justify-between p-1.5 transition-all border ${
+        className={`w-12 h-14 rounded-lg flex flex-col items-center justify-between p-1.5 transition-all border shrink-0 touch-manipulation active:scale-95 ${
           selectedTool === '3'
             ? 'bg-slate-800/90 border-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)]'
             : 'bg-slate-900/60 border-slate-700/60 hover:bg-slate-800/60'
@@ -96,7 +96,7 @@ export const NoteToolPanel: React.FC<NoteToolPanelProps> = ({
       <button
         id="tool-big-ka"
         onClick={() => onSelectTool('4')}
-        className={`w-12 h-14 rounded-lg flex flex-col items-center justify-between p-1.5 transition-all border ${
+        className={`w-12 h-14 rounded-lg flex flex-col items-center justify-between p-1.5 transition-all border shrink-0 touch-manipulation active:scale-95 ${
           selectedTool === '4'
             ? 'bg-slate-800/90 border-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)]'
             : 'bg-slate-900/60 border-slate-700/60 hover:bg-slate-800/60'
@@ -118,7 +118,7 @@ export const NoteToolPanel: React.FC<NoteToolPanelProps> = ({
       <button
         id="tool-roll"
         onClick={() => onSelectTool('5')}
-        className={`w-14 h-14 rounded-lg flex flex-col items-center justify-between p-1.5 transition-all border ${
+        className={`w-14 h-14 rounded-lg flex flex-col items-center justify-between p-1.5 transition-all border shrink-0 touch-manipulation active:scale-95 ${
           selectedTool === '5'
             ? 'bg-slate-800/90 border-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)]'
             : 'bg-slate-900/60 border-slate-700/60 hover:bg-slate-800/60'
@@ -135,7 +135,7 @@ export const NoteToolPanel: React.FC<NoteToolPanelProps> = ({
       <button
         id="tool-big-roll"
         onClick={() => onSelectTool('6')}
-        className={`w-14 h-14 rounded-lg flex flex-col items-center justify-between p-1.5 transition-all border ${
+        className={`w-14 h-14 rounded-lg flex flex-col items-center justify-between p-1.5 transition-all border shrink-0 touch-manipulation active:scale-95 ${
           selectedTool === '6'
             ? 'bg-slate-800/90 border-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)]'
             : 'bg-slate-900/60 border-slate-700/60 hover:bg-slate-800/60'
@@ -152,7 +152,7 @@ export const NoteToolPanel: React.FC<NoteToolPanelProps> = ({
       <button
         id="tool-balloon"
         onClick={() => onSelectTool('7')}
-        className={`w-12 h-14 rounded-lg flex flex-col items-center justify-between p-1.5 transition-all border ${
+        className={`w-12 h-14 rounded-lg flex flex-col items-center justify-between p-1.5 transition-all border shrink-0 touch-manipulation active:scale-95 ${
           selectedTool === '7'
             ? 'bg-slate-800/90 border-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)]'
             : 'bg-slate-900/60 border-slate-700/60 hover:bg-slate-800/60'
@@ -169,7 +169,7 @@ export const NoteToolPanel: React.FC<NoteToolPanelProps> = ({
       <button
         id="tool-erase"
         onClick={() => onSelectTool('erase')}
-        className={`w-12 h-14 rounded-lg flex flex-col items-center justify-between p-1.5 transition-all border ${
+        className={`w-12 h-14 rounded-lg flex flex-col items-center justify-between p-1.5 transition-all border shrink-0 touch-manipulation active:scale-95 ${
           selectedTool === 'erase'
             ? 'bg-slate-800/90 border-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)]'
             : 'bg-slate-900/60 border-slate-700/60 hover:bg-slate-800/60'
@@ -182,10 +182,18 @@ export const NoteToolPanel: React.FC<NoteToolPanelProps> = ({
         <span className="text-[11px] font-medium text-slate-200">消去</span>
       </button>
 
-      {/* Balloon hit count configuration when Balloon tool is active */}
+      {/* Balloon hit count configuration with +/- steppers */}
       {selectedTool === '7' && (
-        <div className="flex items-center gap-1 px-2 py-1 rounded bg-pink-950/40 border border-pink-700/50 text-pink-200 text-xs">
+        <div className="flex items-center gap-1 px-2 py-1 rounded-lg bg-pink-950/50 border border-pink-700/60 text-pink-200 text-xs shrink-0">
           <span className="text-[11px] font-medium">打数:</span>
+          <button
+            type="button"
+            onClick={() => onChangeBalloonHitCount && onChangeBalloonHitCount(Math.max(1, balloonHitCount - 1))}
+            className="w-6 h-6 flex items-center justify-center rounded bg-pink-900/70 hover:bg-pink-800 text-pink-200 font-bold active:scale-90 touch-manipulation"
+            title="-1"
+          >
+            -
+          </button>
           <input
             id="balloon-hit-count-input"
             type="number"
@@ -198,14 +206,22 @@ export const NoteToolPanel: React.FC<NoteToolPanelProps> = ({
                 onChangeBalloonHitCount(val);
               }
             }}
-            className="w-12 px-1.5 py-0.5 rounded bg-slate-900 border border-pink-500/60 text-center text-xs font-bold text-white focus:outline-none focus:ring-1 focus:ring-pink-400"
+            className="w-10 px-1 py-0.5 rounded bg-slate-900 border border-pink-500/60 text-center text-xs font-bold text-white focus:outline-none focus:ring-1 focus:ring-pink-400"
           />
+          <button
+            type="button"
+            onClick={() => onChangeBalloonHitCount && onChangeBalloonHitCount(balloonHitCount + 1)}
+            className="w-6 h-6 flex items-center justify-center rounded bg-pink-900/70 hover:bg-pink-800 text-pink-200 font-bold active:scale-90 touch-manipulation"
+            title="+1"
+          >
+            +
+          </button>
         </div>
       )}
 
       {/* Pending State Indicator & Cancel Button */}
       {pendingSpecialNote && (
-        <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-amber-950/60 border border-amber-500/80 text-amber-200 text-xs animate-pulse">
+        <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-amber-950/70 border border-amber-500 text-amber-200 text-xs shrink-0 shadow-sm">
           <span className="font-semibold">
             {pendingSpecialNote.type === 'balloon'
               ? '風船'
@@ -217,10 +233,10 @@ export const NoteToolPanel: React.FC<NoteToolPanelProps> = ({
           {onCancelPending && (
             <button
               onClick={onCancelPending}
-              className="p-0.5 ml-1 rounded hover:bg-amber-800/60 text-amber-300 hover:text-white"
+              className="w-6 h-6 flex items-center justify-center ml-1 rounded hover:bg-amber-800/80 text-amber-300 hover:text-white active:scale-90 touch-manipulation"
               title="配置キャンセル"
             >
-              <X className="w-3.5 h-3.5" />
+              <X className="w-4 h-4" />
             </button>
           )}
         </div>

@@ -9,6 +9,7 @@ import { CourseModel, NoteModel, RollModel, BalloonModel } from '../../core';
 import { TimelineLayout, GridDivision } from '../../editor/editor-types';
 import { getNoteX, findVisibleMeasureLayouts } from '../../editor/coordinate-mapping';
 import { PendingSpecialNote } from '../../editor/special-notes';
+import { useTimelineTap } from './use-timeline-tap';
 
 interface NoteLaneProps {
   course: CourseModel;
@@ -29,11 +30,7 @@ export const NoteLane: React.FC<NoteLaneProps> = ({
   visibleEndX,
   pendingSpecialNote,
 }) => {
-  const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const clickX = e.clientX - rect.left;
-    onTapLane(clickX);
-  };
+  const tapHandlers = useTimelineTap(onTapLane);
 
   const effectiveDiv = typeof selectedGrid === 'number' ? selectedGrid : 16;
 
@@ -192,9 +189,9 @@ export const NoteLane: React.FC<NoteLaneProps> = ({
   return (
     <div
       id="note-lane"
-      onClick={handleClick}
-      className="relative h-28 bg-[#0b111e] border-b border-slate-800/80 cursor-crosshair select-none overflow-hidden"
-      style={{ width: `${layout.totalWidth}px` }}
+      {...tapHandlers}
+      className="relative h-28 bg-[#0b111e] border-b border-slate-800/80 cursor-crosshair select-none overflow-hidden touch-pan-x-scroll"
+      style={{ width: `${layout.totalWidth}px`, touchAction: 'pan-x' }}
     >
       {/* Center horizontal guideline */}
       <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-[1px] bg-slate-700/30 pointer-events-none" />

@@ -65,15 +65,15 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
   return (
     <div
       id="editor-toolbar"
-      className="bg-[#090e18] border-t border-slate-850 select-none shrink-0 z-30 flex flex-col"
+      className="bg-[#090e18] border-t border-slate-850 select-none shrink-0 z-30 flex flex-col safe-pb safe-pl safe-pr"
     >
       {/* Top Tab Bar matching reference image */}
-      <div className="h-8 border-b border-slate-800/80 px-3 flex items-center gap-1.5 overflow-x-auto scrollbar-none">
+      <div className="h-8 border-b border-slate-800/80 px-2 sm:px-3 flex items-center gap-1 sm:gap-1.5 overflow-x-auto scrollbar-none touch-pan-x-scroll shrink-0">
         {/* Tab 1: 音符 */}
         <button
           id="tab-note"
           onClick={() => onSelectTab('note')}
-          className={`h-7 px-3.5 rounded-t text-xs font-medium flex items-center gap-1.5 transition-colors ${
+          className={`h-7 px-2.5 sm:px-3.5 rounded-t text-xs font-medium flex items-center gap-1.5 transition-colors shrink-0 touch-manipulation active:scale-95 ${
             selectedTab === 'note'
               ? 'bg-blue-600 text-white font-semibold shadow-sm'
               : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
@@ -87,7 +87,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
         <button
           id="tab-gogo"
           onClick={() => onSelectTab('gogo')}
-          className={`h-7 px-3.5 rounded-t text-xs font-medium flex items-center gap-1.5 transition-colors ${
+          className={`h-7 px-2.5 sm:px-3.5 rounded-t text-xs font-medium flex items-center gap-1.5 transition-colors shrink-0 touch-manipulation active:scale-95 ${
             selectedTab === 'gogo'
               ? 'bg-blue-600 text-white font-semibold shadow-sm'
               : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
@@ -101,7 +101,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
         <button
           id="tab-bpm"
           onClick={() => onSelectTab('bpm')}
-          className={`h-7 px-3.5 rounded-t text-xs font-medium flex items-center gap-1.5 transition-colors ${
+          className={`h-7 px-2.5 sm:px-3.5 rounded-t text-xs font-medium flex items-center gap-1.5 transition-colors shrink-0 touch-manipulation active:scale-95 ${
             selectedTab === 'bpm'
               ? 'bg-blue-600 text-white font-semibold shadow-sm'
               : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
@@ -117,7 +117,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
         <button
           id="tab-measure"
           onClick={() => onSelectTab('measure')}
-          className={`h-7 px-3.5 rounded-t text-xs font-medium flex items-center gap-1.5 transition-colors ${
+          className={`h-7 px-2.5 sm:px-3.5 rounded-t text-xs font-medium flex items-center gap-1.5 transition-colors shrink-0 touch-manipulation active:scale-95 ${
             selectedTab === 'measure'
               ? 'bg-blue-600 text-white font-semibold shadow-sm'
               : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
@@ -131,7 +131,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
       </div>
 
       {/* Lower Panel: Active Tool Panel on Left + Grid Selector on Right */}
-      <div className="h-16 px-3 py-1 flex items-center justify-between gap-4 overflow-x-auto scrollbar-none">
+      <div className="h-16 px-2 sm:px-3 py-1 flex items-center justify-between gap-3 sm:gap-4 overflow-x-auto scrollbar-none touch-pan-x-scroll">
         {/* Left: Tools according to selected tab */}
         <div className="flex items-center min-w-0">
           {selectedTab === 'note' && (

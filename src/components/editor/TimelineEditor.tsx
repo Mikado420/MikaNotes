@@ -159,7 +159,7 @@ export const TimelineEditor: React.FC<TimelineEditorProps> = ({
       <div
         ref={scrollContainerRef}
         id="timeline-scroll-container"
-        className="flex-1 overflow-x-auto overflow-y-hidden relative select-none scrollbar-thin scrollbar-thumb-slate-700 scrollbar-track-transparent"
+        className="flex-1 overflow-x-auto overflow-y-hidden relative select-none scrollbar-thin scrollbar-thumb-slate-700 scrollbar-track-transparent touch-pan-x-scroll"
       >
         <div
           id="timeline-unified-tracks"
@@ -196,6 +196,7 @@ export const TimelineEditor: React.FC<TimelineEditorProps> = ({
             layout={layout}
             visibleStartX={visibleStartX}
             visibleEndX={visibleEndX}
+            onTapLane={onTapTimeline}
           />
 
           {/* 5. BPM Lane */}
@@ -205,6 +206,7 @@ export const TimelineEditor: React.FC<TimelineEditorProps> = ({
             layout={layout}
             visibleStartX={visibleStartX}
             visibleEndX={visibleEndX}
+            onTapLane={onTapTimeline}
           />
 
           {/* 6. MEASURE Lane */}
@@ -212,6 +214,7 @@ export const TimelineEditor: React.FC<TimelineEditorProps> = ({
             layout={layout}
             visibleStartX={visibleStartX}
             visibleEndX={visibleEndX}
+            onTapLane={onTapTimeline}
           />
 
           {/* 7. Shared Playhead passing through all lanes */}

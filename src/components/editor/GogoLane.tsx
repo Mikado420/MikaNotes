@@ -7,6 +7,7 @@ import React, { useMemo } from 'react';
 import { CourseModel, Timeline } from '../../core';
 import { TimelineLayout } from '../../editor/editor-types';
 import { timeToTimelineX, findVisibleMeasureLayouts } from '../../editor/coordinate-mapping';
+import { useTimelineTap } from './use-timeline-tap';
 
 interface GogoLaneProps {
   course: CourseModel;
@@ -14,6 +15,7 @@ interface GogoLaneProps {
   layout: TimelineLayout;
   visibleStartX?: number;
   visibleEndX?: number;
+  onTapLane?: (x: number) => void;
 }
 
 export const GogoLane: React.FC<GogoLaneProps> = ({
@@ -22,7 +24,10 @@ export const GogoLane: React.FC<GogoLaneProps> = ({
   layout,
   visibleStartX,
   visibleEndX,
+  onTapLane,
 }) => {
+  const tapHandlers = useTimelineTap(onTapLane);
+
   const visibleMeasures = useMemo(() => {
     if (visibleStartX !== undefined && visibleEndX !== undefined) {
       return findVisibleMeasureLayouts(visibleStartX, visibleEndX, layout.measures);
@@ -47,8 +52,9 @@ export const GogoLane: React.FC<GogoLaneProps> = ({
   return (
     <div
       id="gogo-lane"
-      className="relative h-7 bg-[#090e19] border-b border-slate-800/80 overflow-hidden select-none"
-      style={{ width: `${layout.totalWidth}px` }}
+      {...tapHandlers}
+      className="relative h-7 bg-[#090e19] border-b border-slate-800/80 overflow-hidden select-none cursor-pointer touch-pan-x-scroll"
+      style={{ width: `${layout.totalWidth}px`, touchAction: 'pan-x' }}
     >
       {/* Background measure boundary lines */}
       <svg

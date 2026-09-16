@@ -10,6 +10,7 @@ import { TimelineEditor } from './TimelineEditor';
 import { EditorToolbar } from './EditorToolbar';
 import { EditorMenuModal } from './EditorMenuModal';
 import { TjaTextEditorModal } from './TjaTextEditorModal';
+import { OrientationNotice } from './OrientationNotice';
 
 interface EditorShellProps {
   initialTja: string;
@@ -120,6 +121,9 @@ export const EditorShell: React.FC<EditorShellProps> = ({
         fileName={editor.fileName}
         onApplyTja={editor.applyTjaText}
       />
+
+      {/* 6. Mobile Portrait Orientation Notice Prompt */}
+      <OrientationNotice />
     </div>
   );
 };

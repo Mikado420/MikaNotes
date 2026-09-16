@@ -7,6 +7,7 @@ import React, { useMemo } from 'react';
 import { CourseModel, Timeline } from '../../core';
 import { TimelineLayout } from '../../editor/editor-types';
 import { timeToTimelineX, findVisibleMeasureLayouts } from '../../editor/coordinate-mapping';
+import { useTimelineTap } from './use-timeline-tap';
 
 interface BpmLaneProps {
   course: CourseModel;
@@ -14,6 +15,7 @@ interface BpmLaneProps {
   layout: TimelineLayout;
   visibleStartX?: number;
   visibleEndX?: number;
+  onTapLane?: (x: number) => void;
 }
 
 export const BpmLane: React.FC<BpmLaneProps> = ({
@@ -22,7 +24,10 @@ export const BpmLane: React.FC<BpmLaneProps> = ({
   layout,
   visibleStartX,
   visibleEndX,
+  onTapLane,
 }) => {
+  const tapHandlers = useTimelineTap(onTapLane);
+
   const visibleMeasures = useMemo(() => {
     if (visibleStartX !== undefined && visibleEndX !== undefined) {
       return findVisibleMeasureLayouts(visibleStartX, visibleEndX, layout.measures);
@@ -78,8 +83,9 @@ export const BpmLane: React.FC<BpmLaneProps> = ({
   return (
     <div
       id="bpm-lane"
-      className="relative h-7 bg-[#090e18] border-b border-slate-850 overflow-hidden select-none font-mono text-[10px]"
-      style={{ width: `${layout.totalWidth}px` }}
+      {...tapHandlers}
+      className="relative h-7 bg-[#090e18] border-b border-slate-850 overflow-hidden select-none font-mono text-[10px] cursor-pointer touch-pan-x-scroll"
+      style={{ width: `${layout.totalWidth}px`, touchAction: 'pan-x' }}
     >
       {/* Background measure boundary lines */}
       <svg
