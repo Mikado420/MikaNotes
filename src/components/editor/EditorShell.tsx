@@ -67,7 +67,7 @@ export const EditorShell: React.FC<EditorShellProps> = ({
         selectedGrid={editor.selectedGrid}
         isPlaying={editor.isPlaying}
         onTapTimeline={editor.handleTimelineTap}
-        onSelectMeasure={() => {}}
+        onSelectMeasure={editor.seekToMeasure}
         onZoomIn={editor.zoomIn}
         onZoomOut={editor.zoomOut}
         onResetZoom={() => editor.setZoomPercent(100)}

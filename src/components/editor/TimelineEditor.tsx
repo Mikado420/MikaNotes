@@ -107,6 +107,19 @@ export const TimelineEditor: React.FC<TimelineEditorProps> = ({
     }
   }, [isPlaying, playheadX]);
 
+  // Handle measure selection via MeasureHeader tap to keep target measure in view
+  const handleSelectMeasure = (idx: number) => {
+    onSelectMeasure(idx);
+    const mLayout = layout.measures.find((m) => m.index === idx);
+    if (mLayout && scrollContainerRef.current) {
+      const container = scrollContainerRef.current;
+      const viewWidth = container.clientWidth;
+      if (mLayout.startX < container.scrollLeft || mLayout.startX > container.scrollLeft + viewWidth * 0.75) {
+        container.scrollLeft = Math.max(0, mLayout.startX - 32);
+      }
+    }
+  };
+
   return (
     <div
       id="timeline-editor-viewport"
@@ -173,7 +186,7 @@ export const TimelineEditor: React.FC<TimelineEditorProps> = ({
           <MeasureHeader
             layout={layout}
             activeMeasureIndex={activeMeasureIndex}
-            onSelectMeasure={onSelectMeasure}
+            onSelectMeasure={handleSelectMeasure}
             visibleStartX={visibleStartX}
             visibleEndX={visibleEndX}
           />

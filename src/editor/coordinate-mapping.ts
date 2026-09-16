@@ -10,6 +10,7 @@ import { MeasureLayoutInfo, TimelineLayout, GridDivision } from './editor-types'
 
 export const BASE_BEAT_WIDTH = 72; // Width of 1 beat (quarter note) in pixels at 100% zoom
 export const LANE_PADDING_LEFT = 48; // Left offset for visual margin before Measure 0
+export const MAX_MEASURE_WIDTH = 8000; // Visual Editor protection: clamp max measure display width
 
 /**
  * Calculates the complete layout mapping for all measures in the course.
@@ -24,9 +25,8 @@ export function calculateTimelineLayout(
   let currentX = LANE_PADDING_LEFT;
   const measureLayouts: MeasureLayoutInfo[] = [];
 
-  // Visual Editor protection: clamp max measure display width to 8000px
+  // Visual Editor protection: clamp max measure display width to MAX_MEASURE_WIDTH
   // Prevents DOM/layout crashes on extreme #MEASURE (e.g. 99999999/1) while preserving Core exact data
-  const MAX_MEASURE_WIDTH = 8000;
 
   for (let i = 0; i < course.measures.length; i++) {
     const m = course.measures[i];
