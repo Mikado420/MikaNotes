@@ -125,6 +125,14 @@ export function validateSpecialPlacement(
     return { valid: false, error: '開始位置に既に音符が存在します' };
   }
 
+  // Cannot enclose any existing regular notes inside the special note interval
+  const hasEnclosedNotes = course.notes.some(
+    (n) => n.time > pending.startTime + 1e-4 && n.time < endTime - 1e-4
+  );
+  if (hasEnclosedNotes) {
+    return { valid: false, error: '区間内に通常音符が存在します' };
+  }
+
   const allSpecial: (RollModel | BalloonModel)[] = [
     ...course.rolls,
     ...course.balloons,
@@ -313,7 +321,7 @@ export function eraseSpecialNoteAtPosition(
     const isEnd =
       b.endMeasureIndex === measureIndex &&
       isSameRationalPosition(b.endPosition, rational);
-    const isInside = time >= b.startTime - 0.02 && time <= b.endTime + 0.02;
+    const isInside = time >= b.startTime - 1e-4 && time <= b.endTime + 1e-4;
     return isStart || isEnd || isInside;
   });
 
@@ -357,7 +365,7 @@ export function eraseSpecialNoteAtPosition(
     const isEnd =
       r.endMeasureIndex === measureIndex &&
       isSameRationalPosition(r.endPosition, rational);
-    const isInside = time >= r.startTime - 0.02 && time <= r.endTime + 0.02;
+    const isInside = time >= r.startTime - 1e-4 && time <= r.endTime + 1e-4;
     return isStart || isEnd || isInside;
   });
 

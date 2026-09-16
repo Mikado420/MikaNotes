@@ -601,20 +601,21 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
           setCurrentTime(time);
           setSelectedMeasureForEdit(measureIndex);
 
-          // Check endpoint collision: cannot overwrite existing roll or balloon endpoints
+          // Check collision: cannot place regular notes on endpoints or inside existing rolls / balloons
           const allSpecial: (RollModel | BalloonModel)[] = [
             ...currentCourse.rolls,
             ...currentCourse.balloons,
           ];
-          const endpointConflict = allSpecial.some(
+          const insideOrEndpointConflict = allSpecial.some(
             (r) =>
               (r.startMeasureIndex === measureIndex &&
                 isSameRationalPosition(r.startPosition, rational)) ||
               (r.endMeasureIndex === measureIndex &&
-                isSameRationalPosition(r.endPosition, rational))
+                isSameRationalPosition(r.endPosition, rational)) ||
+              (time >= r.startTime - 1e-4 && time <= r.endTime + 1e-4)
           );
-          if (endpointConflict) {
-            showNotification('特殊音符の端点には通常音符を配置できません', 'error');
+          if (insideOrEndpointConflict) {
+            showNotification('特殊音符の区間内には通常音符を配置できません', 'error');
             return;
           }
 

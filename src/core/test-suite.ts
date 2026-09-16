@@ -10,6 +10,7 @@ import { scanTJAInfo } from './scanner';
 import { validateTJARaw } from './validator';
 import { Timeline } from './timeline';
 import { approxEqual, isSameRationalPosition } from './math';
+import { ChartModel } from './types';
 import {
   snapTimelineXToGrid,
   calculateTimelineLayout,
@@ -20,6 +21,13 @@ import {
   timelineXToTime,
 } from '../editor/coordinate-mapping';
 import { GridDivision } from '../editor/editor-types';
+import {
+  PendingSpecialNote,
+  validateSpecialStart,
+  validateSpecialPlacement,
+  createSpecialNote,
+  eraseSpecialNoteAtPosition,
+} from '../editor/special-notes';
 
 export interface TestCaseResult {
   id: string;
@@ -1447,6 +1455,607 @@ BALLOON:7,12
       message: passed
         ? `Handled abnormal measure characters gracefully; validator produced ${val.errors.length + val.warnings.length} diagnostic issues and parser recovered ${noteCount} valid notes.`
         : 'Malformed measure caused an uncaught crash.',
+    };
+  });
+
+  // ==========================================
+  // PHASE 3-A TEST CASES
+  // Special Notes: Roll, Big Roll, Balloon
+  // ==========================================
+
+  // Phase 3-A Test 1: Special Notes Creation (Roll, Big Roll, Balloon)
+  test('test-phase3a-creation-roll-bigroll-balloon', 'Special Notes Creation (Roll, Big Roll, Balloon)', 'rolls', () => {
+    const tja = `TITLE:Phase 3-A Creation\nBPM:120\nCOURSE:Oni\nLEVEL:10\n#START\n00000000,\n00000000,\n#END`;
+    const chart = parseTJA(tja);
+    let course = chart.activeCourse;
+    const tl = new Timeline(course);
+
+    // 1. Create Roll (5): Measure 0, pos 0/1 -> pos 1/2
+    const rollStartPos = { numerator: 0, denominator: 1, fraction: 0 };
+    const rollStartTime = tl.positionToTime(course.measures[0], rollStartPos);
+    const rollPending: PendingSpecialNote = {
+      toolType: '5',
+      type: 'roll',
+      rawType: '5',
+      startMeasureIndex: 0,
+      startPosition: rollStartPos,
+      startTime: rollStartTime,
+      snappedX: 0,
+    };
+    const rollEndPos = { numerator: 1, denominator: 2, fraction: 0.5 };
+    const rollEndTime = tl.positionToTime(course.measures[0], rollEndPos);
+    course = createSpecialNote(course, rollPending, 0, rollEndPos, rollEndTime);
+
+    // 2. Create Big Roll (6): Measure 0, pos 3/4 -> Measure 1, pos 1/4 (cross-measure)
+    const bigRollStartPos = { numerator: 3, denominator: 4, fraction: 0.75 };
+    const bigRollStartTime = tl.positionToTime(course.measures[0], bigRollStartPos);
+    const bigRollPending: PendingSpecialNote = {
+      toolType: '6',
+      type: 'big_roll',
+      rawType: '6',
+      startMeasureIndex: 0,
+      startPosition: bigRollStartPos,
+      startTime: bigRollStartTime,
+      snappedX: 100,
+    };
+    const bigRollEndPos = { numerator: 1, denominator: 4, fraction: 0.25 };
+    const bigRollEndTime = tl.positionToTime(course.measures[1], bigRollEndPos);
+    course = createSpecialNote(course, bigRollPending, 1, bigRollEndPos, bigRollEndTime);
+
+    // 3. Create Balloon (7): Measure 1, pos 1/2 -> Measure 1, pos 3/4 with hitCount 7
+    const balloonStartPos = { numerator: 1, denominator: 2, fraction: 0.5 };
+    const balloonStartTime = tl.positionToTime(course.measures[1], balloonStartPos);
+    const balloonPending: PendingSpecialNote = {
+      toolType: '7',
+      type: 'balloon',
+      rawType: '7',
+      startMeasureIndex: 1,
+      startPosition: balloonStartPos,
+      startTime: balloonStartTime,
+      snappedX: 200,
+    };
+    const balloonEndPos = { numerator: 3, denominator: 4, fraction: 0.75 };
+    const balloonEndTime = tl.positionToTime(course.measures[1], balloonEndPos);
+    course = createSpecialNote(course, balloonPending, 1, balloonEndPos, balloonEndTime, 7);
+
+    const hasNormalRoll = course.rolls.some((r) => r.type === 'roll' && r.rawType === '5');
+    const hasBigRoll = course.rolls.some((r) => r.type === 'big_roll' && r.rawType === '6');
+    const hasBalloon = course.balloons.length === 1 && course.balloons[0].hitCount === 7;
+    const balloonHeaderSynced = course.headers?.balloon && course.headers.balloon[0] === 7;
+
+    const passed = course.rolls.length === 2 && hasNormalRoll && hasBigRoll && hasBalloon && balloonHeaderSynced;
+    return {
+      passed,
+      message: passed
+        ? 'Successfully created Roll (5), Big Roll (6), and Balloon (7) with synchronized hit count headers.'
+        : `Creation failed: rolls=${course.rolls.length}, balloons=${course.balloons.length}`,
+      details: { rolls: course.rolls.map((r) => ({ type: r.type, raw: r.rawType })), balloons: course.balloons },
+    };
+  });
+
+  // Phase 3-A Test 2: Invalid Placement Rejection
+  test('test-phase3a-invalid-placement', 'Invalid Placement Rejection Validation', 'rolls', () => {
+    const tja = `TITLE:Phase 3-A Rejection\nBPM:120\n#START\n10000000,\n00000000,\n#END`;
+    const chart = parseTJA(tja);
+    const course = chart.activeCourse;
+    const tl = new Timeline(course);
+
+    // 1. Rejection: Start on regular note (Measure 0, 0/1 has note '1')
+    const startOnNoteRes = validateSpecialStart(
+      course,
+      0,
+      { numerator: 0, denominator: 1, fraction: 0 },
+      0.0
+    );
+
+    // 2. Rejection: End before or equal to start
+    const validPending: PendingSpecialNote = {
+      toolType: '5',
+      type: 'roll',
+      rawType: '5',
+      startMeasureIndex: 0,
+      startPosition: { numerator: 1, denominator: 2, fraction: 0.5 },
+      startTime: 1.0,
+      snappedX: 100,
+    };
+    // End time earlier than start
+    const endBeforeStartRes = validateSpecialPlacement(
+      course,
+      validPending,
+      0,
+      { numerator: 1, denominator: 4, fraction: 0.25 },
+      0.5
+    );
+    // End position equal to start (zero length)
+    const endEqualStartRes = validateSpecialPlacement(
+      course,
+      validPending,
+      0,
+      { numerator: 1, denominator: 2, fraction: 0.5 },
+      1.0
+    );
+
+    // 3. Rejection: End on existing regular note
+    const pendingInMeasure1: PendingSpecialNote = {
+      toolType: '5',
+      type: 'roll',
+      rawType: '5',
+      startMeasureIndex: 0,
+      startPosition: { numerator: 3, denominator: 4, fraction: 0.75 },
+      startTime: 1.5,
+      snappedX: 150,
+    };
+    // If measure 0 pos 0/1 has note '1', ending on it
+    const endOnNoteRes = validateSpecialPlacement(
+      course,
+      pendingInMeasure1,
+      0,
+      { numerator: 0, denominator: 1, fraction: 0 },
+      0.0 // earlier time anyway
+    );
+
+    // 4. Rejection: Interval overlap with existing roll
+    const courseWithRoll = createSpecialNote(
+      course,
+      validPending,
+      0,
+      { numerator: 3, denominator: 4, fraction: 0.75 },
+      1.5
+    );
+    // Try to place overlapping roll [1.2s to 1.8s]
+    const overlapPending: PendingSpecialNote = {
+      toolType: '5',
+      type: 'roll',
+      rawType: '5',
+      startMeasureIndex: 0,
+      startPosition: { numerator: 5, denominator: 8, fraction: 0.625 },
+      startTime: 1.25,
+      snappedX: 125,
+    };
+    const overlapRes = validateSpecialPlacement(
+      courseWithRoll,
+      overlapPending,
+      0,
+      { numerator: 7, denominator: 8, fraction: 0.875 },
+      1.75
+    );
+
+    // 5. Rejection: Regular note enclosed inside special note interval
+    // Course has note '1' at time 0.0. Try to create roll starting before 0.0 and ending after 0.0 or
+    // create a note at 1.0s and try to wrap a roll around it:
+    const tjaWithMidNote = `TITLE:MidNote\nBPM:120\n#START\n00100000,\n#END`;
+    const chartWithMidNote = parseTJA(tjaWithMidNote);
+    const pendingEnclosing: PendingSpecialNote = {
+      toolType: '5',
+      type: 'roll',
+      rawType: '5',
+      startMeasureIndex: 0,
+      startPosition: { numerator: 0, denominator: 1, fraction: 0 },
+      startTime: 0.0,
+      snappedX: 0,
+    };
+    const encloseNoteRes = validateSpecialPlacement(
+      chartWithMidNote.activeCourse,
+      pendingEnclosing,
+      0,
+      { numerator: 3, denominator: 4, fraction: 0.75 },
+      1.5
+    );
+
+    const passed =
+      !startOnNoteRes.valid &&
+      !endBeforeStartRes.valid &&
+      !endEqualStartRes.valid &&
+      !endOnNoteRes.valid &&
+      !overlapRes.valid &&
+      !encloseNoteRes.valid;
+
+    return {
+      passed,
+      message: passed
+        ? 'All invalid placement scenarios (start on note, end before start, end on start, overlap, enclosed note) correctly rejected.'
+        : 'Validation failure: some invalid placements were erroneously allowed.',
+      details: {
+        startOnNote: startOnNoteRes,
+        endBeforeStart: endBeforeStartRes,
+        endEqualStart: endEqualStartRes,
+        overlap: overlapRes,
+        enclosedNote: encloseNoteRes,
+      },
+    };
+  });
+
+  // Phase 3-A Test 3: Multi-Measure with Different Time Signatures
+  test('test-phase3a-multimeasure-different-time-signatures', 'Multi-Measure Roll Across Different #MEASURE', 'rolls', () => {
+    const tja = `TITLE:Different Measures\nBPM:120\n#START\n#MEASURE 4/4\n00000000,\n#MEASURE 3/4\n000000,\n#END`;
+    const chart = parseTJA(tja);
+    let course = chart.activeCourse;
+    const tl = new Timeline(course);
+
+    const startPos = { numerator: 1, denominator: 2, fraction: 0.5 };
+    const startTime = tl.positionToTime(course.measures[0], startPos);
+    const pending: PendingSpecialNote = {
+      toolType: '5',
+      type: 'roll',
+      rawType: '5',
+      startMeasureIndex: 0,
+      startPosition: startPos,
+      startTime,
+      snappedX: 50,
+    };
+
+    const endPos = { numerator: 2, denominator: 3, fraction: 2 / 3 };
+    const endTime = tl.positionToTime(course.measures[1], endPos);
+
+    course = createSpecialNote(course, pending, 1, endPos, endTime);
+
+    const roll = course.rolls[0];
+    const isSingleRoll = course.rolls.length === 1;
+    const spansMeasures = roll.startMeasureIndex === 0 && roll.endMeasureIndex === 1;
+    const correctBeats = approxEqual(roll.startBeat, 2.0) && approxEqual(roll.endBeat, 4.0 + 2.0); // 4/4 (4 beats) + 2/3 of 3/4 (2 beats) = 6.0 beats
+
+    const passed = isSingleRoll && spansMeasures && correctBeats;
+    return {
+      passed,
+      message: passed
+        ? 'Roll accurately spans across 4/4 and 3/4 measures as a single continuous RollModel with correct beat mapping.'
+        : `Roll cross-measure failed: isSingleRoll=${isSingleRoll}, spans=${spansMeasures}, startBeat=${roll?.startBeat}, endBeat=${roll?.endBeat}`,
+      details: { roll },
+    };
+  });
+
+  // Phase 3-A Test 4: Timing Across #BPMCHANGE and #DELAY
+  test('test-phase3a-timing-bpm-and-delay', 'Roll Crossing #BPMCHANGE and #DELAY', 'timing', () => {
+    const tja = `TITLE:BPM and Delay\nBPM:120\n#START\n0000,\n#BPMCHANGE 240\n#DELAY 0.5\n0000,\n#END`;
+    const chart = parseTJA(tja);
+    let course = chart.activeCourse;
+    const tl = new Timeline(course);
+
+    // Measure 0: duration = 2.0s
+    // Measure 1: starts after delay 0.5s => startTime = 2.5s. BPM 240 => 4 beats = 1.0s.
+    const startPos = { numerator: 1, denominator: 2, fraction: 0.5 };
+    const startTime = tl.positionToTime(course.measures[0], startPos); // 1.0s
+    const pending: PendingSpecialNote = {
+      toolType: '5',
+      type: 'roll',
+      rawType: '5',
+      startMeasureIndex: 0,
+      startPosition: startPos,
+      startTime,
+      snappedX: 50,
+    };
+
+    const endPos = { numerator: 1, denominator: 2, fraction: 0.5 };
+    const endTime = tl.positionToTime(course.measures[1], endPos); // 2.5s + 0.5s = 3.0s
+
+    course = createSpecialNote(course, pending, 1, endPos, endTime);
+    const roll = course.rolls[0];
+
+    const passed =
+      approxEqual(roll.startTime, 1.0) &&
+      approxEqual(roll.endTime, 3.0) &&
+      course.rolls.length === 1;
+
+    return {
+      passed,
+      message: passed
+        ? 'Roll crossing #BPMCHANGE and #DELAY correctly preserves timeline actual times (1.0s -> 3.0s).'
+        : `Timing mismatch: start=${roll.startTime}, end=${roll.endTime}`,
+      details: { roll },
+    };
+  });
+
+  // Phase 3-A Test 5: Balloon Hit Count Validation & Re-indexing
+  test('test-phase3a-balloon-hitcount-and-reindexing', 'Balloon Hit Count Validation and Dynamic Re-indexing', 'rolls', () => {
+    const tja = `TITLE:Balloon Test\nBPM:120\n#START\n0000000000000000,\n#END`;
+    const chart = parseTJA(tja);
+    let course = chart.activeCourse;
+    const tl = new Timeline(course);
+
+    const pendingBase: PendingSpecialNote = {
+      toolType: '7',
+      type: 'balloon',
+      rawType: '7',
+      startMeasureIndex: 0,
+      startPosition: { numerator: 0, denominator: 1, fraction: 0 },
+      startTime: 0.0,
+      snappedX: 0,
+    };
+
+    // 1. Validation of invalid hitCount
+    const invalidZero = validateSpecialPlacement(course, pendingBase, 0, { numerator: 1, denominator: 8, fraction: 0.125 }, 0.25, 0);
+    const invalidNegative = validateSpecialPlacement(course, pendingBase, 0, { numerator: 1, denominator: 8, fraction: 0.125 }, 0.25, -5);
+    const invalidFloat = validateSpecialPlacement(course, pendingBase, 0, { numerator: 1, denominator: 8, fraction: 0.125 }, 0.25, 3.5);
+    const invalidNaN = validateSpecialPlacement(course, pendingBase, 0, { numerator: 1, denominator: 8, fraction: 0.125 }, 0.25, NaN);
+
+    const validationsPassed = !invalidZero.valid && !invalidNegative.valid && !invalidFloat.valid && !invalidNaN.valid;
+
+    // 2. Add Balloon 0 (5 hits), Balloon 1 (10 hits), Balloon 2 (15 hits)
+    const b0Pending: PendingSpecialNote = {
+      ...pendingBase,
+      startPosition: { numerator: 0, denominator: 1, fraction: 0 },
+      startTime: 0.0,
+    };
+    course = createSpecialNote(course, b0Pending, 0, { numerator: 1, denominator: 8, fraction: 0.125 }, 0.25, 5);
+
+    const b1Pending: PendingSpecialNote = {
+      ...pendingBase,
+      startPosition: { numerator: 2, denominator: 8, fraction: 0.25 },
+      startTime: 0.5,
+    };
+    course = createSpecialNote(course, b1Pending, 0, { numerator: 3, denominator: 8, fraction: 0.375 }, 0.75, 10);
+
+    const b2Pending: PendingSpecialNote = {
+      ...pendingBase,
+      startPosition: { numerator: 4, denominator: 8, fraction: 0.5 },
+      startTime: 1.0,
+    };
+    course = createSpecialNote(course, b2Pending, 0, { numerator: 5, denominator: 8, fraction: 0.625 }, 1.25, 15);
+
+    const initialBalloonsOk =
+      course.balloons.length === 3 &&
+      course.balloons[0].balloonIndex === 0 && course.balloons[0].hitCount === 5 &&
+      course.balloons[1].balloonIndex === 1 && course.balloons[1].hitCount === 10 &&
+      course.balloons[2].balloonIndex === 2 && course.balloons[2].hitCount === 15 &&
+      JSON.stringify(course.headers?.balloon) === JSON.stringify([5, 10, 15]);
+
+    // 3. Delete middle balloon (Balloon 1) at time 0.6s
+    const erased = eraseSpecialNoteAtPosition(course, 0, { numerator: 2, denominator: 8, fraction: 0.25 }, 0.6);
+    course = erased.updatedCourse;
+
+    const reindexingOk =
+      erased.deleted &&
+      course.balloons.length === 2 &&
+      course.balloons[0].balloonIndex === 0 && course.balloons[0].hitCount === 5 &&
+      course.balloons[1].balloonIndex === 1 && course.balloons[1].hitCount === 15 &&
+      JSON.stringify(course.headers?.balloon) === JSON.stringify([5, 15]);
+
+    const passed = validationsPassed && initialBalloonsOk && reindexingOk;
+    return {
+      passed,
+      message: passed
+        ? 'Balloon hit count validation succeeded, and re-indexing after deletion correctly synchronized headers [5, 15].'
+        : 'Balloon hit count validation or re-indexing failed.',
+      details: { validationsPassed, initialBalloonsOk, reindexingOk, balloons: course.balloons },
+    };
+  });
+
+  // Phase 3-A Test 6: Deletion without Orphan '8' End Marker
+  test('test-phase3a-deletion-no-orphan-eight', 'Complete Special Note Deletion without Orphan 8 End Markers', 'rolls', () => {
+    const tja = `TITLE:Deletion Test\nBPM:120\n#START\n00000000,\n00000000,\n#END`;
+    const chart = parseTJA(tja);
+    let course = chart.activeCourse;
+    const tl = new Timeline(course);
+
+    // Create a cross-measure Roll from measure 0 to measure 1
+    const pending: PendingSpecialNote = {
+      toolType: '5',
+      type: 'roll',
+      rawType: '5',
+      startMeasureIndex: 0,
+      startPosition: { numerator: 1, denominator: 2, fraction: 0.5 },
+      startTime: 1.0,
+      snappedX: 100,
+    };
+    course = createSpecialNote(course, pending, 1, { numerator: 1, denominator: 2, fraction: 0.5 }, 3.0);
+
+    // Verify serialize contains 5 and 8
+    const chartWithRoll: ChartModel = {
+      ...chart,
+      courses: { ...chart.courses, [chart.activeCourseKey]: course },
+      activeCourse: course,
+    };
+    const tjaWithRoll = writeTJA(chartWithRoll);
+    const hasRollMarkersBefore = tjaWithRoll.includes('5') && tjaWithRoll.includes('8');
+
+    // Delete the roll by clicking inside in measure 1 (time = 2.5s)
+    const eraseResult = eraseSpecialNoteAtPosition(course, 1, { numerator: 1, denominator: 4, fraction: 0.25 }, 2.5);
+    const courseAfter = eraseResult.updatedCourse;
+
+    const chartAfter: ChartModel = {
+      ...chart,
+      courses: { ...chart.courses, [chart.activeCourseKey]: courseAfter },
+      activeCourse: courseAfter,
+    };
+    const tjaAfter = writeTJA(chartAfter);
+
+    // Verify neither 5 nor 8 remains
+    const hasOrphanEight = tjaAfter.includes('8');
+    const hasRollStart = tjaAfter.includes('5');
+
+    const passed =
+      hasRollMarkersBefore &&
+      eraseResult.deleted &&
+      courseAfter.rolls.length === 0 &&
+      !hasOrphanEight &&
+      !hasRollStart;
+
+    return {
+      passed,
+      message: passed
+        ? 'Special note deleted completely from internal model and serialized TJA with zero orphan 8 end markers.'
+        : `Deletion failed or orphan 8 detected: hasOrphanEight=${hasOrphanEight}, hasRollStart=${hasRollStart}`,
+      details: { tjaAfter },
+    };
+  });
+
+  // Phase 3-A Test 7: Undo / Redo Workflow
+  test('test-phase3a-undo-redo-workflow', 'Special Note Undo / Redo Lifecycle', 'rolls', () => {
+    const tja = `TITLE:Undo Redo\nBPM:120\n#START\n00000000,\n#END`;
+    const chart0 = parseTJA(tja);
+
+    // Step 1: Create Roll
+    const pending: PendingSpecialNote = {
+      toolType: '5',
+      type: 'roll',
+      rawType: '5',
+      startMeasureIndex: 0,
+      startPosition: { numerator: 1, denominator: 4, fraction: 0.25 },
+      startTime: 0.5,
+      snappedX: 50,
+    };
+    const course1 = createSpecialNote(chart0.activeCourse, pending, 0, { numerator: 3, denominator: 4, fraction: 0.75 }, 1.5);
+    const chart1: ChartModel = {
+      ...chart0,
+      courses: { ...chart0.courses, [chart0.activeCourseKey]: course1 },
+      activeCourse: course1,
+    };
+
+    // Serialize history step 0 & 1
+    const hist0 = writeTJA(chart0);
+    const hist1 = writeTJA(chart1);
+
+    // Undo to step 0
+    const restoredUndo = parseTJA(hist0);
+    const undoPassed = restoredUndo.activeCourse.rolls.length === 0;
+
+    // Redo to step 1
+    const restoredRedo = parseTJA(hist1);
+    const redoPassed =
+      restoredRedo.activeCourse.rolls.length === 1 &&
+      restoredRedo.activeCourse.rolls[0].type === 'roll';
+
+    const passed = undoPassed && redoPassed;
+    return {
+      passed,
+      message: passed
+        ? 'Undo accurately eliminated the created roll; Redo cleanly reinstated the exact special note.'
+        : `Undo/Redo failed: undoPassed=${undoPassed}, redoPassed=${redoPassed}`,
+    };
+  });
+
+  // Phase 3-A Test 8: Course Isolation
+  test('test-phase3a-course-isolation', 'Course Isolation (No Cross-Course Pollution)', 'rolls', () => {
+    const tja = `TITLE:Multi Course\nBPM:120\nCOURSE:Oni\nLEVEL:10\n#START\n00000000,\n#END\nCOURSE:Hard\nLEVEL:7\n#START\n00000000,\n#END`;
+    const chart = parseTJA(tja);
+
+    // Place Roll into Oni (key: 3)
+    const oniCourse = chart.courses[3];
+    const pending: PendingSpecialNote = {
+      toolType: '5',
+      type: 'roll',
+      rawType: '5',
+      startMeasureIndex: 0,
+      startPosition: { numerator: 0, denominator: 1, fraction: 0 },
+      startTime: 0.0,
+      snappedX: 0,
+    };
+    const updatedOni = createSpecialNote(oniCourse, pending, 0, { numerator: 1, denominator: 2, fraction: 0.5 }, 1.0);
+
+    const updatedChart: ChartModel = {
+      ...chart,
+      courses: {
+        ...chart.courses,
+        [3]: updatedOni,
+      },
+    };
+
+    // Verify Oni has 1 roll, Hard (key: 2) has 0 rolls
+    const oniRolls = updatedChart.courses[3].rolls.length;
+    const hardRolls = updatedChart.courses[2].rolls.length;
+
+    const passed = oniRolls === 1 && hardRolls === 0;
+    return {
+      passed,
+      message: passed
+        ? 'Editing special notes in Oni course leaves Hard course completely isolated and untouched.'
+        : `Course isolation failed: Oni rolls=${oniRolls}, Hard rolls=${hardRolls}`,
+    };
+  });
+
+  // Phase 3-A Test 9: Semantic Round-Trip (ChartModel -> writeTJA -> parseTJA)
+  test('test-phase3a-roundtrip-preservation', 'Semantic Round-Trip Preservation (Rolls, Big Rolls, Balloons)', 'roundtrip', () => {
+    const tja = `TITLE:Roundtrip Chart\nBPM:120\nCOURSE:Oni\nLEVEL:10\n#START\n00000000,\n00000000,\n#END`;
+    const chart0 = parseTJA(tja);
+    let course = chart0.activeCourse;
+    const tl = new Timeline(course);
+
+    // 1. Roll
+    const r1Start = { numerator: 0, denominator: 1, fraction: 0 };
+    const r1Pending: PendingSpecialNote = {
+      toolType: '5',
+      type: 'roll',
+      rawType: '5',
+      startMeasureIndex: 0,
+      startPosition: r1Start,
+      startTime: tl.positionToTime(course.measures[0], r1Start),
+      snappedX: 0,
+    };
+    course = createSpecialNote(course, r1Pending, 0, { numerator: 1, denominator: 4, fraction: 0.25 }, 0.5);
+
+    // 2. Big Roll (cross-measure)
+    const r2Start = { numerator: 1, denominator: 2, fraction: 0.5 };
+    const r2Pending: PendingSpecialNote = {
+      toolType: '6',
+      type: 'big_roll',
+      rawType: '6',
+      startMeasureIndex: 0,
+      startPosition: r2Start,
+      startTime: tl.positionToTime(course.measures[0], r2Start),
+      snappedX: 50,
+    };
+    course = createSpecialNote(course, r2Pending, 1, { numerator: 1, denominator: 4, fraction: 0.25 }, 2.5);
+
+    // 3. Balloon
+    const b1Start = { numerator: 1, denominator: 2, fraction: 0.5 };
+    const b1Pending: PendingSpecialNote = {
+      toolType: '7',
+      type: 'balloon',
+      rawType: '7',
+      startMeasureIndex: 1,
+      startPosition: b1Start,
+      startTime: tl.positionToTime(course.measures[1], b1Start),
+      snappedX: 100,
+    };
+    course = createSpecialNote(course, b1Pending, 1, { numerator: 3, denominator: 4, fraction: 0.75 }, 3.5, 12);
+
+    const chart1: ChartModel = {
+      ...chart0,
+      courses: { ...chart0.courses, [chart0.activeCourseKey]: course },
+      activeCourse: course,
+    };
+
+    // Write to TJA text
+    const serialized = writeTJA(chart1);
+
+    // Parse back
+    const reParsed = parseTJA(serialized);
+    const parsedCourse = reParsed.activeCourse;
+
+    const roll1 = parsedCourse.rolls.find((r) => r.type === 'roll');
+    const roll2 = parsedCourse.rolls.find((r) => r.type === 'big_roll');
+    const balloon1 = parsedCourse.balloons[0];
+
+    const roll1Ok =
+      !!roll1 &&
+      roll1.startMeasureIndex === 0 &&
+      roll1.endMeasureIndex === 0 &&
+      approxEqual(roll1.startPosition.fraction, 0.0) &&
+      approxEqual(roll1.endPosition.fraction, 0.25);
+
+    const roll2Ok =
+      !!roll2 &&
+      roll2.startMeasureIndex === 0 &&
+      roll2.endMeasureIndex === 1 &&
+      approxEqual(roll2.startPosition.fraction, 0.5) &&
+      approxEqual(roll2.endPosition.fraction, 0.25);
+
+    const balloon1Ok =
+      !!balloon1 &&
+      balloon1.startMeasureIndex === 1 &&
+      balloon1.endMeasureIndex === 1 &&
+      balloon1.hitCount === 12 &&
+      approxEqual(balloon1.startPosition.fraction, 0.5) &&
+      approxEqual(balloon1.endPosition.fraction, 0.75);
+
+    const passed = roll1Ok && roll2Ok && balloon1Ok && parsedCourse.rolls.length === 2 && parsedCourse.balloons.length === 1;
+
+    return {
+      passed,
+      message: passed
+        ? 'Semantic round-trip verified: Roll, Big Roll, and Balloon definitions, spans, fractions, and balloon hit count preserved identically.'
+        : `Semantic roundtrip mismatch: roll1Ok=${roll1Ok}, roll2Ok=${roll2Ok}, balloon1Ok=${balloon1Ok}`,
+      details: { serialized, rolls: parsedCourse.rolls, balloons: parsedCourse.balloons },
     };
   });
 
