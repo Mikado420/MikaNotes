@@ -6,7 +6,7 @@
  * Right: Undo, Redo, divider, Settings, Menu
  */
 
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   Play,
   Pause,
@@ -21,6 +21,7 @@ import {
   Layers,
   Music,
 } from 'lucide-react';
+import { AudioEngine } from '../../audio/AudioEngine';
 
 const COURSE_LABELS: Record<number, string> = {
   0: 'かんたん (Easy)',
@@ -52,6 +53,8 @@ interface EditorHeaderProps {
     fileName: string | null;
   };
   onLoadAudioFile?: (file: File) => void;
+  audioEngine?: AudioEngine;
+  chartOffset?: number;
 }
 
 /**
@@ -70,6 +73,46 @@ function formatTime(seconds: number): string {
 
   return `${mmStr}:${ssStr}.${msStr}`;
 }
+
+const HeaderTimeDisplay: React.FC<{
+  currentTime: number;
+  totalDuration: number;
+  audioEngine?: AudioEngine;
+  chartOffset?: number;
+  isPlaying?: boolean;
+}> = ({ currentTime, totalDuration, audioEngine, chartOffset = 0, isPlaying = false }) => {
+  const currentSpanRef = useRef<HTMLSpanElement>(null);
+
+  useEffect(() => {
+    if (!isPlaying && currentSpanRef.current) {
+      currentSpanRef.current.textContent = formatTime(currentTime);
+    }
+  }, [currentTime, isPlaying]);
+
+  useEffect(() => {
+    if (!isPlaying || !audioEngine) return;
+    const unsub = audioEngine.subscribeTime((audioTime) => {
+      if (currentSpanRef.current) {
+        const t = Math.max(0, audioTime + chartOffset);
+        currentSpanRef.current.textContent = formatTime(t);
+      }
+    });
+    return unsub;
+  }, [isPlaying, audioEngine, chartOffset]);
+
+  return (
+    <div
+      id="time-display"
+      className="font-mono text-[11px] sm:text-xs md:text-sm text-slate-300 tracking-wider flex items-center whitespace-nowrap"
+    >
+      <span ref={currentSpanRef} className="text-white font-medium">
+        {formatTime(currentTime)}
+      </span>
+      <span className="mx-0.5 sm:mx-1 text-slate-600">/</span>
+      <span className="text-slate-400">{formatTime(totalDuration)}</span>
+    </div>
+  );
+};
 
 export const EditorHeader: React.FC<EditorHeaderProps> = ({
   fileName,
@@ -90,6 +133,8 @@ export const EditorHeader: React.FC<EditorHeaderProps> = ({
   onOpenTextEditor,
   audioState,
   onLoadAudioFile,
+  audioEngine,
+  chartOffset = 0,
 }) => {
   const [isEditingName, setIsEditingName] = useState(false);
   const [nameInput, setNameInput] = useState(fileName);
@@ -190,14 +235,13 @@ export const EditorHeader: React.FC<EditorHeaderProps> = ({
           )}
         </button>
 
-        <div
-          id="time-display"
-          className="font-mono text-[11px] sm:text-xs md:text-sm text-slate-300 tracking-wider flex items-center whitespace-nowrap"
-        >
-          <span className="text-white font-medium">{formatTime(currentTime)}</span>
-          <span className="mx-0.5 sm:mx-1 text-slate-600">/</span>
-          <span className="text-slate-400">{formatTime(totalDuration)}</span>
-        </div>
+        <HeaderTimeDisplay
+          currentTime={currentTime}
+          totalDuration={totalDuration}
+          audioEngine={audioEngine}
+          chartOffset={chartOffset}
+          isPlaying={isPlaying}
+        />
       </div>
 
       {/* Right: Audio File Import, TJA Text Editor button, Undo, Redo, Settings, Menu */}

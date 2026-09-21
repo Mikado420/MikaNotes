@@ -88,6 +88,8 @@ export const EditorShell: React.FC<EditorShellProps> = ({
         onOpenTextEditor={() => setIsTextEditorOpen(true)}
         audioState={editor.audioState}
         onLoadAudioFile={editor.loadAudioFile}
+        audioEngine={editor.audioEngine}
+        chartOffset={editor.chart.headers.offset || 0}
       />
 
       {/* 2. Main Visual Multi-Lane Timeline */}
@@ -107,6 +109,9 @@ export const EditorShell: React.FC<EditorShellProps> = ({
         onResetZoom={() => editor.setZoomPercent(100)}
         pendingSpecialNote={editor.pendingSpecialNote}
         notification={editor.notification}
+        audioEngine={editor.audioEngine}
+        chartOffset={editor.chart.headers.offset || 0}
+        onSeekTimelineX={editor.seekTimelineX}
       />
 
       {/* 3. Bottom Toolbar & Mode Switcher */}

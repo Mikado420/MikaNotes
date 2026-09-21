@@ -16,6 +16,7 @@ import { CourseModel, Timeline } from '../../core';
 import { TimelineLayout, GridDivision } from '../../editor/editor-types';
 import { timeToTimelineX } from '../../editor/coordinate-mapping';
 import { PendingSpecialNote } from '../../editor/special-notes';
+import { AudioEngine } from '../../audio/AudioEngine';
 import { WaveformArea } from './WaveformArea';
 import { MeasureHeader } from './MeasureHeader';
 import { NoteLane } from './NoteLane';
@@ -42,6 +43,9 @@ interface TimelineEditorProps {
   onResetZoom: () => void;
   pendingSpecialNote?: PendingSpecialNote | null;
   notification?: { message: string; type: 'error' | 'success' | 'info' } | null;
+  audioEngine?: AudioEngine;
+  chartOffset?: number;
+  onSeekTimelineX?: (x: number) => void;
 }
 
 export const TimelineEditor: React.FC<TimelineEditorProps> = ({
@@ -60,6 +64,9 @@ export const TimelineEditor: React.FC<TimelineEditorProps> = ({
   onResetZoom,
   pendingSpecialNote,
   notification,
+  audioEngine,
+  chartOffset = 0,
+  onSeekTimelineX,
 }) => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [viewportMetrics, setViewportMetrics] = useState({ scrollLeft: 0, clientWidth: 1200 });
@@ -92,20 +99,36 @@ export const TimelineEditor: React.FC<TimelineEditorProps> = ({
   // Calculate current playhead X coordinate
   const playheadX = timeToTimelineX(currentTime, timeline, layout);
 
-  // Auto-scroll to keep playhead in view during playback
+  // Auto-scroll to keep playhead in view during playback (high-frequency RAF subscription)
   useEffect(() => {
     if (!isPlaying || !scrollContainerRef.current) return;
     const container = scrollContainerRef.current;
-    const viewWidth = container.clientWidth;
-    const currentScroll = container.scrollLeft;
 
-    // If playhead goes past 70% of viewport width, advance scroll
-    if (playheadX > currentScroll + viewWidth * 0.75) {
-      container.scrollLeft = playheadX - viewWidth * 0.25;
-    } else if (playheadX < currentScroll) {
-      container.scrollLeft = Math.max(0, playheadX - viewWidth * 0.1);
+    if (audioEngine) {
+      const unsub = audioEngine.subscribeTime((audioTime) => {
+        const t = audioTime + chartOffset;
+        const currentX = timeToTimelineX(t, timeline, layout);
+        const viewWidth = container.clientWidth;
+        const currentScroll = container.scrollLeft;
+
+        if (currentX > currentScroll + viewWidth * 0.75) {
+          container.scrollLeft = currentX - viewWidth * 0.25;
+        } else if (currentX < currentScroll) {
+          container.scrollLeft = Math.max(0, currentX - viewWidth * 0.1);
+        }
+      });
+      return unsub;
+    } else {
+      const viewWidth = container.clientWidth;
+      const currentScroll = container.scrollLeft;
+
+      if (playheadX > currentScroll + viewWidth * 0.75) {
+        container.scrollLeft = playheadX - viewWidth * 0.25;
+      } else if (playheadX < currentScroll) {
+        container.scrollLeft = Math.max(0, playheadX - viewWidth * 0.1);
+      }
     }
-  }, [isPlaying, playheadX]);
+  }, [isPlaying, playheadX, audioEngine, timeline, layout, chartOffset]);
 
   // Handle measure selection via MeasureHeader tap to keep target measure in view
   const handleSelectMeasure = (idx: number) => {
@@ -180,7 +203,7 @@ export const TimelineEditor: React.FC<TimelineEditorProps> = ({
           style={{ width: `${layout.totalWidth}px`, minWidth: '100%' }}
         >
           {/* 1. Waveform Area */}
-          <WaveformArea layout={layout} />
+          <WaveformArea layout={layout} onTapWaveform={onSeekTimelineX} />
 
           {/* 2. Measure Number Header */}
           <MeasureHeader
@@ -231,7 +254,14 @@ export const TimelineEditor: React.FC<TimelineEditorProps> = ({
           />
 
           {/* 7. Shared Playhead passing through all lanes */}
-          <Playhead x={playheadX} />
+          <Playhead
+            x={playheadX}
+            timeline={timeline}
+            layout={layout}
+            audioEngine={audioEngine}
+            chartOffset={chartOffset}
+            isPlaying={isPlaying}
+          />
         </div>
       </div>
 

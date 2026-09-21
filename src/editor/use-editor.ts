@@ -30,6 +30,7 @@ import {
   calculateTimelineLayout,
   snapTimelineXToGrid,
   timeToTimelineX,
+  timelineXToTime,
 } from './coordinate-mapping';
 import {
   PendingSpecialNote,
@@ -239,22 +240,33 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
   useEffect(() => {
     if (isAudioLoaded) {
       setIsPlaying(audioState.isPlaying);
+      if (!audioState.isPlaying) {
+        const finalTime = audioEngine.getCurrentTime() + chartOffset;
+        setCurrentTime(Math.max(0, Math.min(totalDuration, finalTime)));
+      }
     }
-  }, [isAudioLoaded, audioState.isPlaying]);
+  }, [isAudioLoaded, audioState.isPlaying, audioEngine, chartOffset, totalDuration]);
 
   // Audio currentTime -> Timeline currentTime synchronization during playback
   useEffect(() => {
     if (!isAudioLoaded) return;
 
+    let lastSync = 0;
     const unsub = audioEngine.subscribeTime((audioTime) => {
       if (audioState.isPlaying) {
-        const timelineTime = audioTime + chartOffset;
-        setCurrentTime(Math.max(0, timelineTime));
+        const now = performance.now();
+        // Throttle React state re-renders to ~10-15fps while audio is actively playing
+        // (Playhead, TimeDisplay, and AutoScroll subscribe directly to audioEngine at 60fps)
+        if (now - lastSync >= 80) {
+          lastSync = now;
+          const timelineTime = audioTime + chartOffset;
+          setCurrentTime(Math.max(0, Math.min(totalDuration, timelineTime)));
+        }
       }
     });
 
     return unsub;
-  }, [isAudioLoaded, audioEngine, audioState.isPlaying, chartOffset]);
+  }, [isAudioLoaded, audioEngine, audioState.isPlaying, chartOffset, totalDuration]);
 
   // Fallback animation frame loop for timeline-only playback (when no audio is loaded)
   useEffect(() => {
@@ -475,6 +487,15 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
       }
     },
     [totalDuration, isAudioLoaded, chartOffset, audioSeek]
+  );
+
+  // Timeline X position seeking (bidirectional: X -> RationalPosition -> time -> audio)
+  const seekTimelineX = useCallback(
+    (timelineX: number) => {
+      const time = timelineXToTime(timelineX, timeline, timelineLayout);
+      seekTime(time);
+    },
+    [timeline, timelineLayout, seekTime]
   );
 
   // Audio file import
@@ -970,6 +991,7 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
     setMeasureInput,
     togglePlayback,
     seekTime,
+    seekTimelineX,
     seekToMeasure,
     zoomIn,
     zoomOut,

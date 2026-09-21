@@ -18,7 +18,7 @@ interface BpmLaneProps {
   onTapLane?: (x: number) => void;
 }
 
-export const BpmLane: React.FC<BpmLaneProps> = ({
+export const BpmLane: React.FC<BpmLaneProps> = React.memo(({
   course,
   timeline,
   layout,
@@ -135,4 +135,5 @@ export const BpmLane: React.FC<BpmLaneProps> = ({
       })}
     </div>
   );
-};
+});
+

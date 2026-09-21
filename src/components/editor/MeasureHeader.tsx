@@ -16,7 +16,7 @@ interface MeasureHeaderProps {
   visibleEndX?: number;
 }
 
-export const MeasureHeader: React.FC<MeasureHeaderProps> = ({
+export const MeasureHeader: React.FC<MeasureHeaderProps> = React.memo(({
   layout,
   activeMeasureIndex,
   onSelectMeasure,
@@ -85,4 +85,5 @@ export const MeasureHeader: React.FC<MeasureHeaderProps> = ({
       })}
     </div>
   );
-};
+});
+

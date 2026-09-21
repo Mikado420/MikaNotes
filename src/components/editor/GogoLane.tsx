@@ -18,7 +18,7 @@ interface GogoLaneProps {
   onTapLane?: (x: number) => void;
 }
 
-export const GogoLane: React.FC<GogoLaneProps> = ({
+export const GogoLane: React.FC<GogoLaneProps> = React.memo(({
   course,
   timeline,
   layout,
@@ -95,4 +95,5 @@ export const GogoLane: React.FC<GogoLaneProps> = ({
       </svg>
     </div>
   );
-};
+});
+

@@ -6,12 +6,16 @@
 
 import React, { useMemo } from 'react';
 import { TimelineLayout } from '../../editor/editor-types';
+import { useTimelineTap } from './use-timeline-tap';
 
 interface WaveformAreaProps {
   layout: TimelineLayout;
+  onTapWaveform?: (timelineX: number) => void;
 }
 
-export const WaveformArea: React.FC<WaveformAreaProps> = ({ layout }) => {
+export const WaveformArea: React.FC<WaveformAreaProps> = React.memo(({ layout, onTapWaveform }) => {
+  const tapHandlers = useTimelineTap(onTapWaveform);
+
   // Generate deterministic aesthetic waveform spikes matching the reference image's coral red peaks
   const waveformSvg = useMemo(() => {
     const width = layout.totalWidth;
@@ -62,7 +66,8 @@ export const WaveformArea: React.FC<WaveformAreaProps> = ({ layout }) => {
   return (
     <div
       id="waveform-area"
-      className="relative h-9 bg-[#0b101c] border-b border-slate-800/80 overflow-hidden select-none"
+      {...tapHandlers}
+      className="relative h-9 bg-[#0b101c] border-b border-slate-800/80 overflow-hidden select-none cursor-pointer"
       style={{ width: `${layout.totalWidth}px` }}
     >
       {/* Center zero-crossing line */}
@@ -83,4 +88,5 @@ export const WaveformArea: React.FC<WaveformAreaProps> = ({ layout }) => {
       </svg>
     </div>
   );
-};
+});
+

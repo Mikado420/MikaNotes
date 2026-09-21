@@ -175,6 +175,14 @@ export function timeToTimelineX(
   const mLayout = layout.measures[m.index];
   if (!mLayout) return LANE_PADDING_LEFT;
 
+  // If time is beyond the end of the last measure, extrapolate smoothly using final measure tempo
+  if (m.index === layout.measures.length - 1 && time > m.startTime + m.duration) {
+    const extraTime = time - (m.startTime + m.duration);
+    const bpm = timeline.getBpmAtTime(m.startTime + m.duration) || 120;
+    const extraBeats = (extraTime / 60) * bpm;
+    return mLayout.endX + extraBeats * layout.baseBeatWidth;
+  }
+
   // Accurately convert chart time to RationalPosition using Timeline
   const pos = timeline.timeToPosition(m, time);
   const progress = pos.denominator > 0 ? pos.numerator / pos.denominator : (pos.fraction ?? 0);
@@ -197,7 +205,12 @@ export function timelineXToTime(
   if (x <= first.startX) return first.startTime;
 
   const last = layout.measures[layout.measures.length - 1];
-  if (x >= last.endX) return last.startTime + last.duration;
+  if (x >= last.endX) {
+    const lastEnd = last.startTime + last.duration;
+    const bpm = timeline.getBpmAtTime(lastEnd) || 120;
+    const extraBeats = (x - last.endX) / layout.baseBeatWidth;
+    return lastEnd + (extraBeats / bpm) * 60;
+  }
 
   // Find which measure contains this X via binary search O(log N)
   const mLayout = findMeasureLayoutAtX(x, layout.measures);

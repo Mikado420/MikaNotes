@@ -15,7 +15,7 @@ interface MeasureLaneProps {
   onTapLane?: (x: number) => void;
 }
 
-export const MeasureLane: React.FC<MeasureLaneProps> = ({
+export const MeasureLane: React.FC<MeasureLaneProps> = React.memo(({
   layout,
   visibleStartX,
   visibleEndX,
@@ -56,4 +56,5 @@ export const MeasureLane: React.FC<MeasureLaneProps> = ({
       })}
     </div>
   );
-};
+});
+

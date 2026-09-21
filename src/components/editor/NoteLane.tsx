@@ -21,7 +21,7 @@ interface NoteLaneProps {
   pendingSpecialNote?: PendingSpecialNote | null;
 }
 
-export const NoteLane: React.FC<NoteLaneProps> = ({
+export const NoteLane: React.FC<NoteLaneProps> = React.memo(({
   course,
   layout,
   selectedGrid,
@@ -471,4 +471,5 @@ export const NoteLane: React.FC<NoteLaneProps> = ({
       })}
     </div>
   );
-};
+});
+
