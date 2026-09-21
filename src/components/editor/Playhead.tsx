@@ -29,16 +29,18 @@ export const Playhead: React.FC<PlayheadProps> = ({
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Direct position sync when paused, seeking, or when layout/zoom changes
+  const hasAudio = !!audioEngine && audioEngine.isLoaded();
+
+  // Direct position sync when paused, seeking, or when layout/zoom changes, or during audio-less playback
   useEffect(() => {
-    if (!isPlaying && containerRef.current) {
+    if ((!isPlaying || !hasAudio) && containerRef.current) {
       containerRef.current.style.left = `${x}px`;
     }
-  }, [x, isPlaying]);
+  }, [x, isPlaying, hasAudio]);
 
   // High-frequency 60fps RAF subscriber during active audio playback (zero React re-renders)
   useEffect(() => {
-    if (!isPlaying || !audioEngine || !timeline || !layout) return;
+    if (!isPlaying || !hasAudio || !audioEngine || !timeline || !layout) return;
 
     const unsub = audioEngine.subscribeTime((audioTime) => {
       if (containerRef.current) {
@@ -49,7 +51,7 @@ export const Playhead: React.FC<PlayheadProps> = ({
     });
 
     return unsub;
-  }, [isPlaying, audioEngine, timeline, layout, chartOffset]);
+  }, [isPlaying, hasAudio, audioEngine, timeline, layout, chartOffset]);
 
   return (
     <div

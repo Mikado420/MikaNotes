@@ -251,7 +251,9 @@ export class Timeline {
       return measure.startTime;
     }
 
-    const measureBeats = (measure.numerator * 4) / measure.denominator;
+    const denom = measure.denominator > 0 && isFinite(measure.denominator) ? measure.denominator : 4;
+    const numer = measure.numerator > 0 && isFinite(measure.numerator) ? measure.numerator : 4;
+    const measureBeats = (numer * 4) / denom;
 
     // Collect all critical event points within this measure
     const segments = this.buildMeasureTimingSegments(measure);
@@ -315,7 +317,9 @@ export class Timeline {
       return { numerator: 1, denominator: 1, fraction: 1 };
     }
 
-    const measureBeats = (measure.numerator * 4) / measure.denominator;
+    const denom = measure.denominator > 0 && isFinite(measure.denominator) ? measure.denominator : 4;
+    const numer = measure.numerator > 0 && isFinite(measure.numerator) ? measure.numerator : 4;
+    const measureBeats = (numer * 4) / denom;
     const segments = this.buildMeasureTimingSegments(measure);
 
     let currTime = measure.startTime;

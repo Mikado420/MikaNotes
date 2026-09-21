@@ -377,6 +377,116 @@ LEVEL:10
   engine.destroy();
   assert(engine.getState().loadState === 'unloaded', 'Engine destroyed cleanly and released resources');
 
+  // -------------------------------------------------------------
+  // Test 10: Direct (X -> Time -> X) Round-Trip Symmetry
+  // -------------------------------------------------------------
+  console.log('\n--- 10. Direct X -> Time -> X Round-Trip Symmetry ---');
+  const sampleXCoordinates = [
+    layout100.measures[0].startX,
+    layout100.measures[0].startX + layout100.measures[0].width * 0.25,
+    layout100.measures[0].startX + layout100.measures[0].width * 0.5,
+    layout100.measures[1].startX,
+    layout100.measures[1].startX + layout100.measures[1].width * 0.75,
+    layout100.measures[2].startX,
+    layout100.measures[2].startX + layout100.measures[2].width * 0.5,
+  ];
+
+  for (const origX of sampleXCoordinates) {
+    const timeFromX = timelineXToTime(origX, timeline, layout100);
+    const roundTripX = timeToTimelineX(timeFromX, timeline, layout100);
+    assertClose(roundTripX, origX, 0.5, `X -> Time -> X preserved at X=${origX.toFixed(1)}px (roundtrip: ${roundTripX.toFixed(1)}px)`);
+  }
+
+  // -------------------------------------------------------------
+  // Test 11: Extreme #MEASURE (99999999/1) Safety Guard
+  // -------------------------------------------------------------
+  console.log('\n--- 11. Extreme #MEASURE (99999999/1) Safety ---');
+  const extremeMeasureTja = `
+TITLE:Extreme Measure Test
+BPM:120
+#START
+#MEASURE 99999999/1
+1,
+#MEASURE 4/4
+1020,
+#END`;
+  const extremeChart = parseTJA(extremeMeasureTja);
+  const extremeCourse = extremeChart.courses[3];
+  assert(extremeCourse !== undefined, 'Extreme course parsed successfully');
+  assert(extremeCourse.measures.length === 2, 'Extreme course parsed 2 measures without infinite loops');
+
+  const extremeTimeline = new Timeline(extremeCourse);
+  const extremeLayout = calculateTimelineLayout(extremeCourse, 100);
+
+  // Verify visual width is clamped safely to MAX_MEASURE_WIDTH
+  assert(extremeLayout.measures[0].width <= 8000, `Measure 0 width is clamped safely (${extremeLayout.measures[0].width}px <= 8000px)`);
+  assert(isFinite(extremeLayout.measures[0].width), 'Measure 0 width is finite');
+
+  // Verify time mapping operates algebraically without freezing
+  const extremeTime = 10.0;
+  const extremeX = timeToTimelineX(extremeTime, extremeTimeline, extremeLayout);
+  assert(isFinite(extremeX), 'timeToTimelineX produces finite X for extreme measure');
+  const extremeTimeBack = timelineXToTime(extremeX, extremeTimeline, extremeLayout);
+  assert(isFinite(extremeTimeBack), 'timelineXToTime produces finite time for extreme measure');
+
+  // -------------------------------------------------------------
+  // Test 12: Audio Longer than Chart (Extrapolation & Layout Expansion)
+  // -------------------------------------------------------------
+  console.log('\n--- 12. Audio Longer than Chart Handling ---');
+  const chartEnd = activeCourse.measures[activeCourse.measures.length - 1].startTime +
+    activeCourse.measures[activeCourse.measures.length - 1].duration; // 6.25s
+  const longAudioDuration = 60.0; // Audio is 60s, chart is 6.25s
+
+  const expandedLayout = calculateTimelineLayout(activeCourse, 100, { minDuration: longAudioDuration });
+  assert(expandedLayout.totalWidth > layout100.totalWidth, 'calculateTimelineLayout expands totalWidth when audio extends beyond chart');
+
+  // Time beyond chart extrapolates smoothly without NaN or errors
+  const beyondChartTime = 15.0; // 8.75s beyond chart end
+  const beyondChartX = timeToTimelineX(beyondChartTime, timeline, expandedLayout);
+  const lastMeasureEndX = expandedLayout.measures[expandedLayout.measures.length - 1].endX;
+  assert(beyondChartX > lastMeasureEndX, 'timeToTimelineX extrapolates beyond last measure endX');
+
+  const reconBeyondTime = timelineXToTime(beyondChartX, timeline, expandedLayout);
+  assertClose(reconBeyondTime, beyondChartTime, 0.01, 'timelineXToTime accurately converts extrapolated X back to time');
+
+  // -------------------------------------------------------------
+  // Test 13: Boundary & Clamp Handling (Negative Time / Left Margin)
+  // -------------------------------------------------------------
+  console.log('\n--- 13. Boundary & Clamp Handling ---');
+  const negTime = -2.5;
+  const clampedX = timeToTimelineX(negTime, timeline, layout100);
+  assert(clampedX === layout100.measures[0].startX, 'Negative time clamps strictly to Measure 0 startX');
+
+  const beforeStartX = layout100.measures[0].startX - 30;
+  const clampedTime = timelineXToTime(beforeStartX, timeline, layout100);
+  assert(clampedTime === 0.0, 'X before startX clamps strictly to time 0.0s');
+
+  // -------------------------------------------------------------
+  // Test 14: Audio Ended Event & Replay Handling
+  // -------------------------------------------------------------
+  console.log('\n--- 14. Audio Ended & Replay Handling ---');
+  const replayEngine = new AudioEngine();
+  const replayFile = { name: 'replay-test.mp3', size: 1024 } as any;
+  await replayEngine.loadAudioFile(replayFile);
+  await replayEngine.play();
+  assert(replayEngine.getState().isPlaying === true, 'Replay engine is playing');
+
+  // Simulate audio ended event from browser
+  const mockAudio = (replayEngine as any).audio as MockAudioElement;
+  mockAudio.currentTime = replayEngine.getDuration();
+  mockAudio.dispatchEvent('ended');
+
+  assert(replayEngine.getState().isPlaying === false, 'Engine isPlaying becomes false on ended event');
+  assertClose(replayEngine.getCurrentTime(), replayEngine.getDuration(), 0.001, 'currentTime equals duration on ended');
+
+  // Triggering play() again should reset to 0 and resume cleanly
+  await replayEngine.play();
+  assert(replayEngine.getState().isPlaying === true, 'Engine successfully replays after ended');
+  assertClose(replayEngine.getCurrentTime(), 0.0, 0.05, 'Playback restarts from beginning (0.0s)');
+
+  replayEngine.destroy();
+  assert(replayEngine.getState().loadState === 'unloaded', 'Replay engine cleanly destroyed');
+
   console.log(`\n==================================================`);
   console.log(`Phase 4-2 Verification Complete: ${passedTests} / ${totalTests} tests passed.`);
   console.log(`🎉 ALL PHASE 4-2 SPECIFICATION REQUIREMENTS VERIFIED!`);

@@ -103,8 +103,9 @@ export const TimelineEditor: React.FC<TimelineEditorProps> = ({
   useEffect(() => {
     if (!isPlaying || !scrollContainerRef.current) return;
     const container = scrollContainerRef.current;
+    const hasAudio = !!audioEngine && audioEngine.isLoaded();
 
-    if (audioEngine) {
+    if (hasAudio && audioEngine) {
       const unsub = audioEngine.subscribeTime((audioTime) => {
         const t = audioTime + chartOffset;
         const currentX = timeToTimelineX(t, timeline, layout);

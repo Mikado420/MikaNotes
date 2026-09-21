@@ -82,15 +82,16 @@ const HeaderTimeDisplay: React.FC<{
   isPlaying?: boolean;
 }> = ({ currentTime, totalDuration, audioEngine, chartOffset = 0, isPlaying = false }) => {
   const currentSpanRef = useRef<HTMLSpanElement>(null);
+  const hasAudio = !!audioEngine && audioEngine.isLoaded();
 
   useEffect(() => {
-    if (!isPlaying && currentSpanRef.current) {
+    if ((!isPlaying || !hasAudio) && currentSpanRef.current) {
       currentSpanRef.current.textContent = formatTime(currentTime);
     }
-  }, [currentTime, isPlaying]);
+  }, [currentTime, isPlaying, hasAudio]);
 
   useEffect(() => {
-    if (!isPlaying || !audioEngine) return;
+    if (!isPlaying || !hasAudio || !audioEngine) return;
     const unsub = audioEngine.subscribeTime((audioTime) => {
       if (currentSpanRef.current) {
         const t = Math.max(0, audioTime + chartOffset);
@@ -98,7 +99,7 @@ const HeaderTimeDisplay: React.FC<{
       }
     });
     return unsub;
-  }, [isPlaying, audioEngine, chartOffset]);
+  }, [isPlaying, hasAudio, audioEngine, chartOffset]);
 
   return (
     <div

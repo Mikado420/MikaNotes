@@ -17,7 +17,8 @@ export const MAX_MEASURE_WIDTH = 8000; // Visual Editor protection: clamp max me
  */
 export function calculateTimelineLayout(
   course: CourseModel,
-  zoomPercent: number
+  zoomPercent: number,
+  options?: { minDuration?: number; bpm?: number }
 ): TimelineLayout {
   const zoomFactor = Math.max(0.2, zoomPercent / 100);
   const beatWidth = BASE_BEAT_WIDTH * zoomFactor;
@@ -57,8 +58,19 @@ export function calculateTimelineLayout(
     currentX += width;
   }
 
-  // Add right padding for easy scrubbing
-  const totalWidth = currentX + 300;
+  // Calculate total track width, accommodating audio duration if audio extends beyond chart
+  let totalWidth = currentX + 300;
+  if (options?.minDuration && options.minDuration > 0 && measureLayouts.length > 0) {
+    const lastMeasure = measureLayouts[measureLayouts.length - 1];
+    const chartDuration = lastMeasure.startTime + lastMeasure.duration;
+    if (options.minDuration > chartDuration) {
+      const extraTime = options.minDuration - chartDuration;
+      const bpm = options.bpm || 120;
+      const extraBeats = (extraTime / 60) * bpm;
+      const extraWidth = extraBeats * beatWidth;
+      totalWidth = Math.max(totalWidth, currentX + extraWidth + 300);
+    }
+  }
 
   return {
     totalWidth,
@@ -163,6 +175,7 @@ export function timeToTimelineX(
   layout: TimelineLayout
 ): number {
   if (layout.measures.length === 0) return LANE_PADDING_LEFT;
+  if (time <= 0 || isNaN(time)) return layout.measures[0]?.startX ?? LANE_PADDING_LEFT;
 
   // Find measure at time using Timeline's binary search
   const m = timeline.getMeasureAtTime(time);

@@ -183,8 +183,8 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
 
   // Layout calculation
   const timelineLayout: TimelineLayout = useMemo(() => {
-    return calculateTimelineLayout(activeCourse, zoom);
-  }, [activeCourse, zoom]);
+    return calculateTimelineLayout(activeCourse, zoom, { minDuration: totalDuration });
+  }, [activeCourse, zoom, totalDuration]);
 
   // Current active measure index based on currentTime
   const currentMeasure = useMemo(() => {
@@ -225,8 +225,12 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
     if (isPlaying) {
       stopPlayback();
     } else {
-      // If at the end, restart from beginning
-      if (currentTime >= totalDuration) {
+      // If at or near the end, restart from beginning
+      const isAtEnd =
+        currentTime >= totalDuration - 0.05 ||
+        (isAudioLoaded && audioState.duration > 0 && audioEngine.getCurrentTime() >= audioState.duration - 0.05);
+
+      if (isAtEnd) {
         setCurrentTime(0);
         if (isAudioLoaded) {
           audioSeek(0 - chartOffset);
@@ -234,7 +238,7 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
       }
       startPlayback();
     }
-  }, [isPlaying, currentTime, totalDuration, isAudioLoaded, chartOffset, audioSeek, startPlayback, stopPlayback]);
+  }, [isPlaying, currentTime, totalDuration, isAudioLoaded, audioState.duration, audioEngine, chartOffset, audioSeek, startPlayback, stopPlayback]);
 
   // Synchronize isPlaying with audioState when audio is loaded
   useEffect(() => {

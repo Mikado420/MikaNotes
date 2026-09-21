@@ -289,6 +289,37 @@ OFFSET:1.5
   assert(rateEngine.getState().volume === 1.0, 'AudioEngine clamps volume to 1.0');
   rateEngine.destroy();
 
+  // 22. Rapid audio switching / generation token safety
+  const raceEngine = new AudioEngine();
+  const fileA = { name: 'trackA.mp3', size: 1024 } as File;
+  const fileB = { name: 'trackB.mp3', size: 2048 } as File;
+  const pA = raceEngine.loadAudioFile(fileA);
+  const pB = raceEngine.loadAudioFile(fileB);
+  await Promise.all([pA, pB]);
+  assert(raceEngine.getState().fileName === 'trackB.mp3', 'Generation token ensures final audio is trackB.mp3 despite rapid switching');
+  assert(raceEngine.getState().loadState === 'loaded', 'Race engine settled to loaded state');
+
+  // 23. Immediate destroy timer cleanup
+  const timerEngine = new AudioEngine();
+  const dummyFile = { name: 'dummy.mp3', size: 512 } as File;
+  timerEngine.loadAudioFile(dummyFile);
+  timerEngine.destroy();
+  assert(timerEngine.getState().loadState === 'unloaded', 'Engine destroyed immediately before load resolves remains unloaded');
+
+  // 24. Ended event replay test
+  const endEngine = new AudioEngine();
+  await endEngine.loadAudioFile(fileA);
+  await endEngine.play();
+  assert(endEngine.getState().isPlaying === true, 'End engine is playing');
+  const endAudio = (endEngine as any).audio as MockAudioElement;
+  endAudio.currentTime = endEngine.getDuration();
+  endAudio.dispatchEvent('ended');
+  assert(endEngine.getState().isPlaying === false, 'End engine isPlaying set to false on ended event');
+  await endEngine.play();
+  assert(endEngine.getState().isPlaying === true, 'End engine replays cleanly');
+  assert(endEngine.getCurrentTime() <= 0.05, 'End engine replayed from beginning');
+  endEngine.destroy();
+
   console.log(`\nVerification Complete: ${passed} / ${total} tests passed.`);
   if (passed === total) {
     console.log('🎉 ALL 21 PHASE 4-1 VERIFICATION ITEMS CONFIRMED SUCCESSFUL!\n');
