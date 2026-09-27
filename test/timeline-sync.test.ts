@@ -487,6 +487,45 @@ BPM:120
   replayEngine.destroy();
   assert(replayEngine.getState().loadState === 'unloaded', 'Replay engine cleanly destroyed');
 
+  // -------------------------------------------------------------
+  // Test 15: Audio-less Playback & Safe Fallback
+  // -------------------------------------------------------------
+  console.log('\n--- 15. Audio-less Playback & Safe Fallback ---');
+  const noAudioEngine = new AudioEngine();
+  assert(!noAudioEngine.isLoaded(), 'No-audio engine isLoaded() is false');
+  await noAudioEngine.play(); // Safe no-op
+  assert(!noAudioEngine.isPlaying(), 'No-audio engine play() is safe no-op');
+  noAudioEngine.pause(); // Safe no-op
+  noAudioEngine.seek(5.0); // Safely sets internal time without audio element
+  assertClose(noAudioEngine.getCurrentTime(), 5.0, 0.001, 'No-audio engine safely sets internal time on seek');
+  // Playhead coordinate calculation without audio remains 100% operational
+  const noAudioX = timeToTimelineX(5.0, timeline, layout100);
+  assert(noAudioX > 0 && isFinite(noAudioX), 'Playhead coordinate calculation works perfectly without audio loaded');
+  noAudioEngine.destroy();
+
+  // -------------------------------------------------------------
+  // Test 16: Chart Longer Than Audio Handling
+  // -------------------------------------------------------------
+  console.log('\n--- 16. Chart Longer Than Audio Handling ---');
+  const shortAudioEngine = new AudioEngine();
+  const shortAudioFile = { name: 'short.mp3', size: 1024 } as any;
+  await shortAudioEngine.loadAudioFile(shortAudioFile);
+  // Short audio duration = 2.0s while chart is 6.25s
+  const shortAudioEl = (shortAudioEngine as any).audio as MockAudioElement;
+  shortAudioEl.duration = 2.0;
+  (shortAudioEngine as any).state.duration = 2.0;
+
+  // Seek timeline to 5.0s (with OFFSET -1.0s, audioTime would be 6.0s, which exceeds 2.0s)
+  const targetTimelineTime5 = 5.0;
+  const targetAudioTime5 = targetTimelineTime5 - (-1.0); // 6.0s
+  shortAudioEngine.seek(targetAudioTime5);
+  // Engine clamps audio seek to audio duration (2.0s)
+  assertClose(shortAudioEngine.getCurrentTime(), 2.0, 0.001, 'Seeking past short audio duration clamps cleanly to 2.0s');
+  // But timeline mapping for 5.0s remains exact in Measure 3
+  const mAt5 = timeline.getMeasureAtTime(targetTimelineTime5);
+  assert(mAt5 !== null && mAt5.index === 3, 'Timeline mapping for 5.0s correctly identifies Measure 3 despite audio being shorter');
+  shortAudioEngine.destroy();
+
   console.log(`\n==================================================`);
   console.log(`Phase 4-2 Verification Complete: ${passedTests} / ${totalTests} tests passed.`);
   console.log(`🎉 ALL PHASE 4-2 SPECIFICATION REQUIREMENTS VERIFIED!`);

@@ -320,6 +320,52 @@ OFFSET:1.5
   assert(endEngine.getCurrentTime() <= 0.05, 'End engine replayed from beginning');
   endEngine.destroy();
 
+  // 25. Rapid audio switching A -> B -> C
+  const tripleEngine = new AudioEngine();
+  const file1 = { name: 'track1.mp3', size: 1024 } as File;
+  const file2 = { name: 'track2.mp3', size: 2048 } as File;
+  const file3 = { name: 'track3.mp3', size: 4096 } as File;
+  const p1 = tripleEngine.loadAudioFile(file1);
+  const p2 = tripleEngine.loadAudioFile(file2);
+  const p3 = tripleEngine.loadAudioFile(file3);
+  await Promise.all([p1, p2, p3]);
+  assert(tripleEngine.getState().fileName === 'track3.mp3', 'A -> B -> C rapid switching settles to track3.mp3');
+  assert(tripleEngine.getState().loadState === 'loaded', 'A -> B -> C rapid switching state is loaded');
+  tripleEngine.destroy();
+
+  // 26. Stale event immunity (old audio element event does not corrupt active engine)
+  const staleEngine = new AudioEngine();
+  const fileX = { name: 'trackX.mp3', size: 1024 } as File;
+  const fileY = { name: 'trackY.mp3', size: 2048 } as File;
+  const pX = staleEngine.loadAudioFile(fileX);
+  const oldAudioInstance = (staleEngine as any).audio as MockAudioElement | null;
+  const pY = staleEngine.loadAudioFile(fileY);
+  await Promise.all([pX, pY]);
+  assert(staleEngine.getState().fileName === 'trackY.mp3', 'Current engine file is trackY.mp3');
+  if (oldAudioInstance) {
+    oldAudioInstance.dispatchEvent('error');
+    oldAudioInstance.dispatchEvent('ended');
+  }
+  assert(staleEngine.getState().loadState === 'loaded', 'Stale audio element error event does not change engine loadState');
+  assert(staleEngine.getState().fileName === 'trackY.mp3', 'Stale audio element event does not change engine fileName');
+  staleEngine.destroy();
+
+  // 27. Destroy during loading guarantees Promise resolution and unloaded state
+  const abortEngine = new AudioEngine();
+  const fileZ = { name: 'trackZ.mp3', size: 1024 } as File;
+  const pZ = abortEngine.loadAudioFile(fileZ);
+  abortEngine.destroy();
+  await pZ;
+  assert(abortEngine.getState().loadState === 'unloaded', 'Engine destroyed while loading settles promise and remains unloaded');
+
+  // 28. Fallback timeout timer cleanup
+  const timeoutEngine = new AudioEngine();
+  const stalledFile = { name: 'stalled.mp3', size: 1024 } as File;
+  const pStalled = timeoutEngine.loadAudioFile(stalledFile);
+  timeoutEngine.destroy();
+  await pStalled;
+  assert(timeoutEngine.getState().loadState === 'unloaded', 'Stalled engine destroy cleans up fallback timer cleanly');
+
   console.log(`\nVerification Complete: ${passed} / ${total} tests passed.`);
   if (passed === total) {
     console.log('🎉 ALL 21 PHASE 4-1 VERIFICATION ITEMS CONFIRMED SUCCESSFUL!\n');

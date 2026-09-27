@@ -10,10 +10,21 @@ import {
   AudioTimeCallback,
 } from './types';
 
+interface PendingLoad {
+  generation: number;
+  audio: HTMLAudioElement;
+  objectUrl: string;
+  timeoutId: any;
+  settled: boolean;
+  resolve: () => void;
+  cleanup: () => void;
+}
+
 export class AudioEngine {
   private audio: HTMLAudioElement | null = null;
   private currentObjectUrl: string | null = null;
   private currentFileName: string | null = null;
+  private pendingLoads: Map<number, PendingLoad> = new Map();
 
   private state: AudioEngineState = {
     loadState: 'unloaded',
@@ -146,7 +157,9 @@ export class AudioEngine {
       this.boundOnError = null;
 
       this.audio.src = '';
-      this.audio.load();
+      try {
+        this.audio.load();
+      } catch {}
       this.audio = null;
     }
 
@@ -157,22 +170,48 @@ export class AudioEngine {
   }
 
   /**
+   * Abort and resolve all pending in-flight loads to prevent dangling promises and stale state corruption
+   */
+  private abortPendingLoads(): void {
+    for (const [, pending] of this.pendingLoads) {
+      if (!pending.settled) {
+        pending.settled = true;
+        if (pending.timeoutId !== null) {
+          clearTimeout(pending.timeoutId);
+          pending.timeoutId = null;
+        }
+        pending.cleanup();
+        pending.resolve();
+      }
+    }
+    this.pendingLoads.clear();
+  }
+
+  /**
    * Load an audio file (File object from input[type=file] or drag-and-drop)
    */
   public async loadAudioFile(file: File): Promise<void> {
-    // Basic validation
-    if (!file || file.size === 0) {
-      this.state.loadState = 'error';
-      this.state.errorMessage = '音源ファイルが空または無効です';
-      this.notifyState();
-      return;
-    }
-
     // Advance load generation token to discard any pending asynchronous callbacks from previous loads
     const currentGeneration = ++this.loadGeneration;
 
-    // Clean up previous audio instance and URL
+    // Immediately abort any pending in-flight loads so their promises resolve cleanly
+    this.abortPendingLoads();
+
+    // Clean up previous active audio instance and URL
     this.cleanupCurrentAudio();
+
+    // Basic validation
+    if (!file || file.size === 0) {
+      this.state = {
+        ...this.state,
+        loadState: 'error',
+        isPlaying: false,
+        fileName: null,
+        errorMessage: '音源ファイルが空または無効です',
+      };
+      this.notifyState();
+      return;
+    }
 
     this.currentFileName = file.name;
     this.state = {
@@ -190,7 +229,6 @@ export class AudioEngine {
     let objectUrl = '';
     try {
       objectUrl = URL.createObjectURL(file);
-      this.currentObjectUrl = objectUrl;
     } catch (err: any) {
       if (this.loadGeneration !== currentGeneration) return;
       this.state.loadState = 'error';
@@ -207,20 +245,86 @@ export class AudioEngine {
    */
   private initializeAudioElement(src: string, fileName: string, generation: number): Promise<void> {
     return new Promise((resolve) => {
+      // If already superseded synchronously
+      if (this.loadGeneration !== generation) {
+        URL.revokeObjectURL(src);
+        resolve();
+        return;
+      }
+
       const audio = new Audio();
       this.audio = audio;
       audio.preload = 'auto';
       audio.volume = this.state.volume;
       audio.playbackRate = this.state.playbackRate;
 
-      let settled = false;
-      const settleSuccess = () => {
-        if (settled || this.loadGeneration !== generation) return;
-        settled = true;
-        if (this.loadFallbackTimeoutId !== null) {
-          clearTimeout(this.loadFallbackTimeoutId);
-          this.loadFallbackTimeoutId = null;
+      const pending: PendingLoad = {
+        generation,
+        audio,
+        objectUrl: src,
+        timeoutId: null,
+        settled: false,
+        resolve,
+        cleanup: () => {},
+      };
+
+      const cleanup = () => {
+        audio.removeEventListener('loadedmetadata', onLoadedMetadata);
+        audio.removeEventListener('canplay', onLoadedMetadata);
+        audio.removeEventListener('timeupdate', onTimeUpdate);
+        audio.removeEventListener('play', onPlay);
+        audio.removeEventListener('pause', onPause);
+        audio.removeEventListener('ended', onEnded);
+        audio.removeEventListener('error', onError);
+
+        try {
+          audio.pause();
+        } catch {}
+        audio.src = '';
+        try {
+          audio.load();
+        } catch {}
+
+        if (this.audio === audio) {
+          this.audio = null;
         }
+
+        if (pending.objectUrl) {
+          URL.revokeObjectURL(pending.objectUrl);
+          pending.objectUrl = '';
+        }
+      };
+      pending.cleanup = cleanup;
+
+      const settleSuccess = () => {
+        if (pending.settled) return;
+        pending.settled = true;
+
+        if (pending.timeoutId !== null) {
+          clearTimeout(pending.timeoutId);
+          pending.timeoutId = null;
+        }
+
+        this.pendingLoads.delete(generation);
+
+        // If this generation was superseded, clean up audio/URL and resolve silently
+        if (this.loadGeneration !== generation) {
+          cleanup();
+          resolve();
+          return;
+        }
+
+        // Active generation: transfer URL ownership to this.currentObjectUrl
+        this.currentObjectUrl = pending.objectUrl;
+        pending.objectUrl = '';
+
+        // Bind active listeners for cleanupCurrentAudio
+        this.boundOnTimeUpdate = onTimeUpdate;
+        this.boundOnPlay = onPlay;
+        this.boundOnPause = onPause;
+        this.boundOnEnded = onEnded;
+        this.boundOnError = onError;
+
         const dur = isFinite(audio.duration) && !isNaN(audio.duration) ? audio.duration : 0;
         this.state = {
           ...this.state,
@@ -235,12 +339,26 @@ export class AudioEngine {
       };
 
       const settleError = (msg: string) => {
-        if (settled || this.loadGeneration !== generation) return;
-        settled = true;
-        if (this.loadFallbackTimeoutId !== null) {
-          clearTimeout(this.loadFallbackTimeoutId);
-          this.loadFallbackTimeoutId = null;
+        if (pending.settled) return;
+        pending.settled = true;
+
+        if (pending.timeoutId !== null) {
+          clearTimeout(pending.timeoutId);
+          pending.timeoutId = null;
         }
+
+        this.pendingLoads.delete(generation);
+
+        if (this.loadGeneration !== generation) {
+          cleanup();
+          resolve();
+          return;
+        }
+
+        cleanup();
+        this.audio = null;
+        this.currentObjectUrl = null;
+
         this.state = {
           ...this.state,
           loadState: 'error',
@@ -248,29 +366,32 @@ export class AudioEngine {
           errorMessage: msg,
         };
         this.notifyState();
-        resolve(); // Resolve rather than throw to keep callers stable
+        resolve();
       };
 
-      this.boundOnLoadedMetadata = () => {
-        if (this.loadGeneration !== generation) return;
+      const onLoadedMetadata = () => {
+        if (this.loadGeneration !== generation) {
+          settleSuccess();
+          return;
+        }
         settleSuccess();
       };
 
-      this.boundOnTimeUpdate = () => {
+      const onTimeUpdate = () => {
         if (!this.audio || this.loadGeneration !== generation) return;
         const cur = this.audio.currentTime;
         this.state.currentTime = cur;
         this.notifyTime(cur);
       };
 
-      this.boundOnPlay = () => {
+      const onPlay = () => {
         if (this.loadGeneration !== generation) return;
         this.state.isPlaying = true;
         this.notifyState();
         this.startRafLoop();
       };
 
-      this.boundOnPause = () => {
+      const onPause = () => {
         if (this.loadGeneration !== generation) return;
         this.state.isPlaying = false;
         this.stopRafLoop();
@@ -281,7 +402,7 @@ export class AudioEngine {
         this.notifyState();
       };
 
-      this.boundOnEnded = () => {
+      const onEnded = () => {
         if (this.loadGeneration !== generation) return;
         this.state.isPlaying = false;
         this.stopRafLoop();
@@ -292,8 +413,11 @@ export class AudioEngine {
         this.notifyState();
       };
 
-      this.boundOnError = (e) => {
-        if (this.loadGeneration !== generation) return;
+      const onError = () => {
+        if (this.loadGeneration !== generation) {
+          settleError('音源の読み込みに失敗しました');
+          return;
+        }
         const errCode = audio.error?.code;
         let errDesc = '音源の読み込みまたはデコードに失敗しました';
         if (errCode === 1) errDesc = '音源の取得が中止されました';
@@ -304,25 +428,32 @@ export class AudioEngine {
         settleError(errDesc);
       };
 
-      audio.addEventListener('loadedmetadata', this.boundOnLoadedMetadata);
-      audio.addEventListener('timeupdate', this.boundOnTimeUpdate);
-      audio.addEventListener('play', this.boundOnPlay);
-      audio.addEventListener('pause', this.boundOnPause);
-      audio.addEventListener('ended', this.boundOnEnded);
-      audio.addEventListener('error', this.boundOnError);
+      audio.addEventListener('loadedmetadata', onLoadedMetadata);
+      audio.addEventListener('canplay', onLoadedMetadata);
+      audio.addEventListener('timeupdate', onTimeUpdate);
+      audio.addEventListener('play', onPlay);
+      audio.addEventListener('pause', onPause);
+      audio.addEventListener('ended', onEnded);
+      audio.addEventListener('error', onError);
+
+      this.pendingLoads.set(generation, pending);
 
       audio.src = src;
       audio.load();
 
       // Fallback timeout in case loadedmetadata doesn't fire (e.g. stalled or silent error)
-      this.loadFallbackTimeoutId = setTimeout(() => {
-        if (this.loadGeneration !== generation) return;
-        if (!settled) {
-          if (audio.readyState >= 1) {
-            settleSuccess();
-          } else if (audio.error) {
-            settleError('音源の読み込みに失敗しました');
-          }
+      pending.timeoutId = setTimeout(() => {
+        if (pending.settled) return;
+        if (this.loadGeneration !== generation) {
+          settleSuccess();
+          return;
+        }
+        if (audio.readyState >= 1) {
+          settleSuccess();
+        } else if (audio.error) {
+          settleError('音源の読み込みに失敗しました');
+        } else {
+          settleError('音源の読み込みがタイムアウトしました');
         }
       }, 3000);
     });
@@ -479,6 +610,7 @@ export class AudioEngine {
    */
   public dispose(): void {
     this.loadGeneration++;
+    this.abortPendingLoads();
     this.cleanupCurrentAudio();
     this.stateSubscribers.clear();
     this.timeSubscribers.clear();
