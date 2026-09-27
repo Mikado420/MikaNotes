@@ -378,7 +378,7 @@ export class AudioEngine {
       };
 
       const onDurationChange = () => {
-        if (!this.audio || this.loadGeneration !== generation) return;
+        if (!this.audio || this.audio !== audio || this.loadGeneration !== generation) return;
         if (isFinite(audio.duration) && !isNaN(audio.duration) && audio.duration > 0) {
           if (this.state.duration !== audio.duration) {
             this.state.duration = audio.duration;
@@ -388,29 +388,25 @@ export class AudioEngine {
       };
 
       const onLoadedMetadata = () => {
-        if (this.loadGeneration !== generation) {
-          settleSuccess();
-          return;
-        }
         settleSuccess();
       };
 
       const onTimeUpdate = () => {
-        if (!this.audio || this.loadGeneration !== generation) return;
+        if (!this.audio || this.audio !== audio || this.loadGeneration !== generation) return;
         const cur = this.audio.currentTime;
         this.state.currentTime = cur;
         this.notifyTime(cur);
       };
 
       const onPlay = () => {
-        if (this.loadGeneration !== generation) return;
+        if (!this.audio || this.audio !== audio || this.loadGeneration !== generation) return;
         this.state.isPlaying = true;
         this.notifyState();
         this.startRafLoop();
       };
 
       const onPause = () => {
-        if (this.loadGeneration !== generation) return;
+        if (!this.audio || this.audio !== audio || this.loadGeneration !== generation) return;
         this.state.isPlaying = false;
         this.stopRafLoop();
         if (this.audio) {
@@ -421,7 +417,7 @@ export class AudioEngine {
       };
 
       const onEnded = () => {
-        if (this.loadGeneration !== generation) return;
+        if (!this.audio || this.audio !== audio || this.loadGeneration !== generation) return;
         this.state.isPlaying = false;
         this.stopRafLoop();
         if (this.audio) {
@@ -432,7 +428,8 @@ export class AudioEngine {
       };
 
       const onError = () => {
-        if (this.loadGeneration !== generation) {
+        if (pending.settled) return;
+        if (this.audio !== audio || this.loadGeneration !== generation) {
           settleError('音源の読み込みに失敗しました');
           return;
         }
@@ -462,8 +459,10 @@ export class AudioEngine {
       // Fallback timeout in case loadedmetadata doesn't fire (e.g. stalled or silent error)
       pending.timeoutId = setTimeout(() => {
         if (pending.settled) return;
-        if (this.loadGeneration !== generation) {
-          settleSuccess();
+        if (this.audio !== audio || this.loadGeneration !== generation) {
+          pending.settled = true;
+          cleanup();
+          resolve();
           return;
         }
         if (audio.readyState >= 1) {

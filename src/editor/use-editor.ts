@@ -509,7 +509,11 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
         stopPlayback();
         await engineLoadAudioFile(file);
         const state = audioEngine.getState();
-        if (state.loadState === 'loaded' && state.fileName === file.name) {
+        // Discard superseded load results so UI is not overwritten by stale in-flight loads
+        if (state.fileName !== file.name) {
+          return;
+        }
+        if (state.loadState === 'loaded') {
           seekTime(0);
           showNotification(`音源を読み込みました: ${file.name}`, 'success');
         } else if (state.loadState === 'error') {

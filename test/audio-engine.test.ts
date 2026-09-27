@@ -474,10 +474,78 @@ OFFSET:1.5
   }
   assert(!hasDuplicateRevoke, 'No Object URL was revoked more than once (no double-revoke)');
 
+  // 35. canplay followed by loadedmetadata does not double-resolve or corrupt state
+  const canplayFirstEngine = new AudioEngine();
+  const cpFile = { name: 'cpFirst.mp3', size: 1024 } as File;
+  let cpNotifCount = 0;
+  canplayFirstEngine.subscribe(() => { cpNotifCount++; });
+  const pCpFirst = canplayFirstEngine.loadAudioFile(cpFile);
+  const cpAudio = (canplayFirstEngine as any).audio as MockAudioElement;
+  cpAudio.dispatchEvent('canplay');
+  await pCpFirst;
+  const countAfterCanplay = cpNotifCount;
+  // Dispatch loadedmetadata afterwards
+  cpAudio.dispatchEvent('loadedmetadata');
+  assert(cpNotifCount === countAfterCanplay, 'loadedmetadata following canplay does not trigger duplicate state notifications');
+  assert(canplayFirstEngine.getState().loadState === 'loaded', 'Engine remains in loaded state after subsequent loadedmetadata');
+  canplayFirstEngine.destroy();
+
+  // 36. durationchange handling before and after load settlement
+  const durEngine = new AudioEngine();
+  const durFile = { name: 'dur.mp3', size: 1024 } as File;
+  const pDur = durEngine.loadAudioFile(durFile);
+  const durAudio = (durEngine as any).audio as MockAudioElement;
+  durAudio.duration = 145.0;
+  durAudio.dispatchEvent('durationchange');
+  durAudio.dispatchEvent('loadedmetadata');
+  await pDur;
+  assert(durEngine.getState().loadState === 'loaded', 'Engine settled to loaded with durationchange before metadata');
+  assert(durEngine.getState().duration === 145.0, 'Duration correctly initialized to 145.0s from durationchange before metadata');
+
+  // durationchange after loaded settlement (e.g. VBR audio / dynamic duration update)
+  let notifiedDuration = 0;
+  durEngine.subscribe((st) => { notifiedDuration = st.duration; });
+  durAudio.duration = 190.5;
+  durAudio.dispatchEvent('durationchange');
+  assert(durEngine.getState().duration === 190.5, 'Engine duration updated to 190.5s by durationchange after load settlement');
+  assert(notifiedDuration === 190.5, 'Subscribers notified of durationchange after load settlement');
+  durEngine.destroy();
+
+  // 37. Standalone error event settles engine to error state and resolves promise cleanly
+  const pureErrorEngine = new AudioEngine();
+  const badFile = { name: 'corrupted.mp3', size: 1024 } as File;
+  const pPureError = pureErrorEngine.loadAudioFile(badFile);
+  const badAudio = (pureErrorEngine as any).audio as MockAudioElement;
+  (badAudio as any).error = { code: 3 }; // decode error
+  badAudio.dispatchEvent('error');
+  await pPureError;
+  assert(pureErrorEngine.getState().loadState === 'error', 'Standalone error settles engine to error state');
+  assert(pureErrorEngine.getState().errorMessage?.includes('デコードに失敗'), 'Error message describes decode error');
+  pureErrorEngine.destroy();
+
+  // 38. Fallback timeout settles to error state when audio loading stalls completely
+  const stallEngine = new AudioEngine();
+  const noResponseFile = { name: 'stall.mp3', size: 1024 } as File;
+  const pStall = stallEngine.loadAudioFile(noResponseFile);
+  const stallAudio = (stallEngine as any).audio as MockAudioElement;
+  stallAudio.load = () => {}; // Prevent auto-dispatching loadedmetadata
+  const stallPending = (stallEngine as any).pendingLoads.get((stallEngine as any).loadGeneration);
+  assert(stallPending !== undefined, 'Pending load exists for stalled audio');
+  assert(stallPending.timeoutId !== null, 'Timeout timer was scheduled for pending load');
+  if (stallPending && stallPending.timeoutId && typeof stallPending.timeoutId._onTimeout === 'function') {
+    stallPending.timeoutId._onTimeout();
+    clearTimeout(stallPending.timeoutId);
+  }
+  await pStall;
+  assert(stallEngine.getState().loadState === 'error', 'Stalled loading settles to error state on timeout');
+  assert(stallEngine.getState().errorMessage === '音源の読み込みがタイムアウトしました', 'Error message indicates timeout');
+  stallEngine.destroy();
+
   console.log(`\nVerification Complete: ${passed} / ${total} tests passed.`);
-  if (passed === total) {
-    console.log('🎉 ALL 21 PHASE 4-1 VERIFICATION ITEMS CONFIRMED SUCCESSFUL!\n');
+  if (passed === total && total > 0) {
+    console.log(`🎉 ALL ${passed} / ${total} AUDIO ENGINE VERIFICATION TESTS CONFIRMED SUCCESSFUL!\n`);
   } else {
+    console.error(`❌ AUDIO ENGINE TEST SUITE FAILED: ${total - passed} test(s) failed out of ${total}.\n`);
     process.exitCode = 1;
   }
 }

@@ -528,7 +528,12 @@ BPM:120
 
   console.log(`\n==================================================`);
   console.log(`Phase 4-2 Verification Complete: ${passedTests} / ${totalTests} tests passed.`);
-  console.log(`🎉 ALL PHASE 4-2 SPECIFICATION REQUIREMENTS VERIFIED!`);
+  if (passedTests === totalTests && totalTests > 0) {
+    console.log(`🎉 ALL ${passedTests} / ${totalTests} PHASE 4-2 SPECIFICATION REQUIREMENTS VERIFIED!`);
+  } else {
+    console.error(`❌ TIMELINE SYNC TEST SUITE FAILED: ${totalTests - passedTests} test(s) failed out of ${totalTests}.`);
+    process.exitCode = 1;
+  }
   console.log(`==================================================\n`);
 }
 
