@@ -371,9 +371,14 @@ OFFSET:1.5
   const metaOnlyFile = { name: 'metaOnly.mp3', size: 1024 } as File;
   const pMeta = metaOnlyEngine.loadAudioFile(metaOnlyFile);
   const metaAudio = (metaOnlyEngine as any).audio as MockAudioElement;
+  metaAudio.duration = 110.0;
   metaAudio.dispatchEvent('loadedmetadata');
   await pMeta;
   assert(metaOnlyEngine.getState().loadState === 'loaded', 'loadedmetadata alone settles engine to loaded state');
+  assert(metaOnlyEngine.getState().duration === 110.0, 'loadedmetadata alone retrieves duration');
+  assert(metaOnlyEngine.getState().fileName === 'metaOnly.mp3', 'loadedmetadata alone sets fileName');
+  assert(metaOnlyEngine.getState().errorMessage === null, 'loadedmetadata alone has null errorMessage');
+  assert((metaOnlyEngine as any).audio === metaAudio, 'Current audio matches active instance on loadedmetadata');
   metaOnlyEngine.destroy();
 
   // 30. canplay alone successfully settles load
@@ -381,9 +386,14 @@ OFFSET:1.5
   const canplayFile = { name: 'canplayOnly.mp3', size: 1024 } as File;
   const pCanplay = canplayOnlyEngine.loadAudioFile(canplayFile);
   const canplayAudio = (canplayOnlyEngine as any).audio as MockAudioElement;
+  canplayAudio.duration = 135.0;
   canplayAudio.dispatchEvent('canplay');
   await pCanplay;
   assert(canplayOnlyEngine.getState().loadState === 'loaded', 'canplay alone settles engine to loaded state');
+  assert(canplayOnlyEngine.getState().duration === 135.0, 'canplay alone retrieves duration');
+  assert(canplayOnlyEngine.getState().fileName === 'canplayOnly.mp3', 'canplay alone sets fileName');
+  assert(canplayOnlyEngine.getState().errorMessage === null, 'canplay alone has null errorMessage');
+  assert((canplayOnlyEngine as any).audio === canplayAudio, 'Current audio matches active instance on canplay');
   canplayOnlyEngine.destroy();
 
   // 31. loadedmetadata followed by canplay does not double-resolve or corrupt state
@@ -540,6 +550,92 @@ OFFSET:1.5
   assert(stallEngine.getState().loadState === 'error', 'Stalled loading settles to error state on timeout');
   assert(stallEngine.getState().errorMessage === '音源の読み込みがタイムアウトしました', 'Error message indicates timeout');
   stallEngine.destroy();
+
+  // 39. In-flight A -> B stale event isolation:
+  // A load -> B load -> A dispatches loadedmetadata, canplay, durationchange, error -> B dispatches loadedmetadata
+  const interleavedEngine = new AudioEngine();
+  const fileA_il = { name: 'interleavedA.mp3', size: 1024 } as File;
+  const fileB_il = { name: 'interleavedB.mp3', size: 2048 } as File;
+  const pA_il = interleavedEngine.loadAudioFile(fileA_il);
+  const audioA_il = (interleavedEngine as any).audio as MockAudioElement;
+  audioA_il.duration = 60.0;
+  audioA_il.load = () => {}; // hold auto-dispatch
+
+  const pB_il = interleavedEngine.loadAudioFile(fileB_il);
+  const audioB_il = (interleavedEngine as any).audio as MockAudioElement;
+  audioB_il.duration = 180.0;
+  audioB_il.load = () => {}; // hold auto-dispatch
+
+  // Stale events fired on A while B is still pending
+  audioA_il.dispatchEvent('loadedmetadata');
+  audioA_il.dispatchEvent('canplay');
+  audioA_il.duration = 999.0;
+  audioA_il.dispatchEvent('durationchange');
+  (audioA_il as any).error = { code: 4 };
+  audioA_il.dispatchEvent('error');
+
+  assert(interleavedEngine.getState().loadState === 'loading', 'In-flight engine remains in loading state while waiting for B despite A events');
+  assert(interleavedEngine.getState().fileName === 'interleavedB.mp3', 'In-flight engine fileName remains interleavedB.mp3 despite A events');
+  assert(interleavedEngine.getState().duration !== 60.0 && interleavedEngine.getState().duration !== 999.0, 'In-flight A duration does not corrupt engine');
+  assert(interleavedEngine.getState().errorMessage === null, 'In-flight A error does not trigger error on active engine');
+
+  // B finishes loading
+  audioB_il.dispatchEvent('loadedmetadata');
+  await Promise.all([pA_il, pB_il]);
+
+  assert(interleavedEngine.getState().loadState === 'loaded', 'B settles cleanly to loaded state');
+  assert(interleavedEngine.getState().fileName === 'interleavedB.mp3', 'Final fileName is interleavedB.mp3');
+  assert(interleavedEngine.getState().duration === 180.0, 'Final duration is B duration (180.0s)');
+  assert(interleavedEngine.getState().errorMessage === null, 'Final errorMessage is null');
+  assert((interleavedEngine as any).audio === audioB_il, 'Active audio element is audioB only');
+  interleavedEngine.destroy();
+
+  // 40. In-flight A -> B -> C stale event isolation:
+  // A load -> B load -> C load -> A & B dispatch stale events -> C dispatches loadedmetadata
+  const tripleInterEngine = new AudioEngine();
+  const fileA_tr = { name: 'tripleA.mp3', size: 1024 } as File;
+  const fileB_tr = { name: 'tripleB.mp3', size: 2048 } as File;
+  const fileC_tr = { name: 'tripleC.mp3', size: 4096 } as File;
+
+  const pA_tr = tripleInterEngine.loadAudioFile(fileA_tr);
+  const audioA_tr = (tripleInterEngine as any).audio as MockAudioElement;
+  audioA_tr.duration = 50.0;
+  audioA_tr.load = () => {};
+
+  const pB_tr = tripleInterEngine.loadAudioFile(fileB_tr);
+  const audioB_tr = (tripleInterEngine as any).audio as MockAudioElement;
+  audioB_tr.duration = 100.0;
+  audioB_tr.load = () => {};
+
+  const pC_tr = tripleInterEngine.loadAudioFile(fileC_tr);
+  const audioC_tr = (tripleInterEngine as any).audio as MockAudioElement;
+  audioC_tr.duration = 240.0;
+  audioC_tr.load = () => {};
+
+  // A and B dispatch whole suite of stale events
+  for (const aud of [audioA_tr, audioB_tr]) {
+    aud.dispatchEvent('loadedmetadata');
+    aud.dispatchEvent('canplay');
+    aud.duration = 888.0;
+    aud.dispatchEvent('durationchange');
+    (aud as any).error = { code: 2 };
+    aud.dispatchEvent('error');
+    aud.dispatchEvent('ended');
+  }
+
+  assert(tripleInterEngine.getState().loadState === 'loading', 'In-flight engine remains loading for C despite stale A/B events');
+  assert(tripleInterEngine.getState().fileName === 'tripleC.mp3', 'In-flight engine fileName is tripleC.mp3');
+
+  // Now C dispatches loadedmetadata
+  audioC_tr.dispatchEvent('loadedmetadata');
+  await Promise.all([pA_tr, pB_tr, pC_tr]);
+
+  assert(tripleInterEngine.getState().loadState === 'loaded', 'C settles cleanly to loaded state');
+  assert(tripleInterEngine.getState().fileName === 'tripleC.mp3', 'Final fileName is tripleC.mp3');
+  assert(tripleInterEngine.getState().duration === 240.0, 'Final duration is C duration (240.0s)');
+  assert(tripleInterEngine.getState().errorMessage === null, 'Final errorMessage is null');
+  assert((tripleInterEngine as any).audio === audioC_tr, 'Active audio element is audioC only');
+  tripleInterEngine.destroy();
 
   console.log(`\nVerification Complete: ${passed} / ${total} tests passed.`);
   if (passed === total && total > 0) {
