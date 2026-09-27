@@ -461,6 +461,11 @@ export class AudioEngine {
         if (pending.settled) return;
         if (this.audio !== audio || this.loadGeneration !== generation) {
           pending.settled = true;
+          if (pending.timeoutId !== null) {
+            clearTimeout(pending.timeoutId);
+            pending.timeoutId = null;
+          }
+          this.pendingLoads.delete(generation);
           cleanup();
           resolve();
           return;
@@ -620,6 +625,14 @@ export class AudioEngine {
 
   public isPlaying(): boolean {
     return this.state.isPlaying;
+  }
+
+  public getLoadGeneration(): number {
+    return this.loadGeneration;
+  }
+
+  public getPendingLoadsCount(): number {
+    return this.pendingLoads.size;
   }
 
   /**

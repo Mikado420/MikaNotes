@@ -691,6 +691,119 @@ OFFSET:1.5
   assert((tripleInterEngine as any).audio === audioC_tr, 'Active audio element is audioC only');
   tripleInterEngine.destroy();
 
+  // 41. Test A: Same file name fast switching (A=song.mp3, B=song.mp3)
+  const sameNameEngine = new AudioEngine();
+  const fileA_sn = { name: 'song.mp3', size: 1024 } as File;
+  const fileB_sn = { name: 'song.mp3', size: 2048 } as File;
+  const pA_sn = sameNameEngine.loadAudioFile(fileA_sn);
+  const audioA_sn = (sameNameEngine as any).audio as MockAudioElement;
+  audioA_sn.duration = 45.0;
+  audioA_sn.disableAutoLoad();
+
+  const pB_sn = sameNameEngine.loadAudioFile(fileB_sn);
+  const audioB_sn = (sameNameEngine as any).audio as MockAudioElement;
+  audioB_sn.duration = 195.0;
+  audioB_sn.disableAutoLoad();
+
+  // A dispatches all stale events
+  audioA_sn.dispatchEvent('loadedmetadata');
+  audioA_sn.dispatchEvent('canplay');
+  audioA_sn.duration = 999.0;
+  audioA_sn.dispatchEvent('durationchange');
+  audioA_sn.currentTime = 30.0;
+  audioA_sn.dispatchEvent('timeupdate');
+  audioA_sn.dispatchEvent('play');
+  audioA_sn.dispatchEvent('pause');
+  audioA_sn.dispatchEvent('ended');
+  (audioA_sn as any).error = { code: 4 };
+  audioA_sn.dispatchEvent('error');
+
+  // Now B completes
+  audioB_sn.dispatchEvent('loadedmetadata');
+  await Promise.all([pA_sn, pB_sn]);
+
+  assert(sameNameEngine.getState().loadState === 'loaded', 'Test A: Same-name B settles cleanly to loaded state');
+  assert(sameNameEngine.getState().fileName === 'song.mp3', 'Test A: Same-name engine fileName is song.mp3');
+  assert(sameNameEngine.getState().duration === 195.0, 'Test A: Same-name engine duration is B duration (195.0s)');
+  assert(sameNameEngine.getState().currentTime === 0, 'Test A: Same-name engine currentTime is 0');
+  assert(sameNameEngine.getState().isPlaying === false, 'Test A: Same-name engine isPlaying is false');
+  assert(sameNameEngine.getState().errorMessage === null, 'Test A: Same-name engine errorMessage is null');
+  assert((sameNameEngine as any).audio === audioB_sn, 'Test A: Same-name active audio element is audioB only');
+  sameNameEngine.destroy();
+
+  // 42. Test C: A -> B with A timeout race
+  const timeoutRaceEngine = new AudioEngine();
+  const fileA_trc = { name: 'timeoutA.mp3', size: 1024 } as File;
+  const fileB_trc = { name: 'timeoutB.mp3', size: 2048 } as File;
+  const pA_trc = timeoutRaceEngine.loadAudioFile(fileA_trc);
+  const audioA_trc = (timeoutRaceEngine as any).audio as MockAudioElement;
+  audioA_trc.disableAutoLoad();
+
+  const pB_trc = timeoutRaceEngine.loadAudioFile(fileB_trc);
+  const audioB_trc = (timeoutRaceEngine as any).audio as MockAudioElement;
+  audioB_trc.duration = 160.0;
+  audioB_trc.disableAutoLoad();
+
+  // B finishes and resolves cleanly
+  audioB_trc.dispatchEvent('loadedmetadata');
+  await Promise.all([pA_trc, pB_trc]);
+
+  assert(timeoutRaceEngine.getState().loadState === 'loaded', 'Test C: A timeout race does not prevent B from loading');
+  assert(timeoutRaceEngine.getState().fileName === 'timeoutB.mp3', 'Test C: A timeout race preserves B fileName');
+  assert(timeoutRaceEngine.getState().duration === 160.0, 'Test C: A timeout race preserves B duration');
+  assert(timeoutRaceEngine.getState().errorMessage === null, 'Test C: A timeout race preserves null errorMessage');
+  assert((timeoutRaceEngine as any).audio === audioB_trc, 'Test C: Active audio element is audioB only after A timeout race');
+  timeoutRaceEngine.destroy();
+
+  // 43. Test D: A -> B with A error race
+  const errorRaceEngine = new AudioEngine();
+  const fileA_err = { name: 'errA.mp3', size: 1024 } as File;
+  const fileB_err = { name: 'okB.mp3', size: 2048 } as File;
+  const pA_err = errorRaceEngine.loadAudioFile(fileA_err);
+  const audioA_err = (errorRaceEngine as any).audio as MockAudioElement;
+  audioA_err.disableAutoLoad();
+
+  const pB_err = errorRaceEngine.loadAudioFile(fileB_err);
+  const audioB_err = (errorRaceEngine as any).audio as MockAudioElement;
+  audioB_err.duration = 150.0;
+  audioB_err.disableAutoLoad();
+
+  // A emits error
+  audioA_err.setError(3, 'Decode failed on A');
+  // B completes
+  audioB_err.dispatchEvent('loadedmetadata');
+  await Promise.all([pA_err, pB_err]);
+
+  assert(errorRaceEngine.getState().loadState === 'loaded', 'Test D: A error does not prevent B from loading');
+  assert(errorRaceEngine.getState().fileName === 'okB.mp3', 'Test D: B fileName is preserved despite A error');
+  assert(errorRaceEngine.getState().duration === 150.0, 'Test D: B duration is preserved despite A error');
+  assert(errorRaceEngine.getState().errorMessage === null, 'Test D: B errorMessage remains null despite A error');
+  assert((errorRaceEngine as any).audio === audioB_err, 'Test D: Active audio element is audioB only despite A error');
+  errorRaceEngine.destroy();
+
+  // 44. Test E: A -> B pending cleanup and Map garbage removal
+  const pendingCleanEngine = new AudioEngine();
+  const pA_pc = pendingCleanEngine.loadAudioFile({ name: 'pcA.mp3', size: 1024 } as File);
+  const pB_pc = pendingCleanEngine.loadAudioFile({ name: 'pcB.mp3', size: 1024 } as File);
+  const audioB_pc = (pendingCleanEngine as any).audio as MockAudioElement;
+  audioB_pc.dispatchEvent('loadedmetadata');
+  await Promise.all([pA_pc, pB_pc]);
+  assert(pendingCleanEngine.getPendingLoadsCount() === 0, 'Test E: pendingLoads has 0 entries after load settlement');
+  pendingCleanEngine.destroy();
+
+  // 45. Test F: destroy during loading
+  const destroyDuringLoadEngine = new AudioEngine();
+  const preUrlsCount = createdUrls.length;
+  const preRevokesCount = revokedUrls.length;
+  const pDestroy = destroyDuringLoadEngine.loadAudioFile({ name: 'destroyMe.mp3', size: 1024 } as File);
+  const destroyAudio = (destroyDuringLoadEngine as any).audio as MockAudioElement;
+  destroyAudio.disableAutoLoad();
+  destroyDuringLoadEngine.destroy();
+  await pDestroy;
+  assert(destroyDuringLoadEngine.getPendingLoadsCount() === 0, 'Test F: pendingLoads is 0 after destroy during loading');
+  assert(destroyDuringLoadEngine.getState().loadState === 'unloaded', 'Test F: loadState is unloaded after destroy during loading');
+  assert(revokedUrls.length - preRevokesCount === createdUrls.length - preUrlsCount, 'Test F: Object URL was revoked on destroy during loading');
+
   console.log(`\nVerification Complete: ${passed} / ${total} tests passed.`);
   if (passed === total && total > 0) {
     console.log(`🎉 ALL ${passed} / ${total} AUDIO ENGINE VERIFICATION TESTS CONFIRMED SUCCESSFUL!\n`);

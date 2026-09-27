@@ -196,6 +196,7 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
   // Animation frame loop for playback
   const lastFrameTimeRef = useRef<number | null>(null);
   const animationFrameIdRef = useRef<number | null>(null);
+  const loadRequestIdRef = useRef<number>(0);
 
   const stopPlayback = useCallback(() => {
     setIsPlaying(false);
@@ -505,11 +506,16 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
   // Audio file import
   const loadAudioFile = useCallback(
     async (file: File) => {
+      const requestId = ++loadRequestIdRef.current;
       try {
         stopPlayback();
         await engineLoadAudioFile(file);
-        const state = audioEngine.getState();
         // Discard superseded load results so UI is not overwritten by stale in-flight loads
+        // (correctly handles both different file names and same file names)
+        if (requestId !== loadRequestIdRef.current) {
+          return;
+        }
+        const state = audioEngine.getState();
         if (state.fileName !== file.name) {
           return;
         }
@@ -520,6 +526,9 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
           showNotification(`音源読み込みエラー: ${state.errorMessage || '音源の読み込みに失敗しました'}`, 'error');
         }
       } catch (err: any) {
+        if (requestId !== loadRequestIdRef.current) {
+          return;
+        }
         console.error('Failed to load audio file:', err);
         showNotification(`音源読み込みエラー: ${err?.message || String(err)}`, 'error');
       }
