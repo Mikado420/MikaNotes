@@ -366,6 +366,114 @@ OFFSET:1.5
   await pStalled;
   assert(timeoutEngine.getState().loadState === 'unloaded', 'Stalled engine destroy cleans up fallback timer cleanly');
 
+  // 29. loadedmetadata alone successfully settles load
+  const metaOnlyEngine = new AudioEngine();
+  const metaOnlyFile = { name: 'metaOnly.mp3', size: 1024 } as File;
+  const pMeta = metaOnlyEngine.loadAudioFile(metaOnlyFile);
+  const metaAudio = (metaOnlyEngine as any).audio as MockAudioElement;
+  metaAudio.dispatchEvent('loadedmetadata');
+  await pMeta;
+  assert(metaOnlyEngine.getState().loadState === 'loaded', 'loadedmetadata alone settles engine to loaded state');
+  metaOnlyEngine.destroy();
+
+  // 30. canplay alone successfully settles load
+  const canplayOnlyEngine = new AudioEngine();
+  const canplayFile = { name: 'canplayOnly.mp3', size: 1024 } as File;
+  const pCanplay = canplayOnlyEngine.loadAudioFile(canplayFile);
+  const canplayAudio = (canplayOnlyEngine as any).audio as MockAudioElement;
+  canplayAudio.dispatchEvent('canplay');
+  await pCanplay;
+  assert(canplayOnlyEngine.getState().loadState === 'loaded', 'canplay alone settles engine to loaded state');
+  canplayOnlyEngine.destroy();
+
+  // 31. loadedmetadata followed by canplay does not double-resolve or corrupt state
+  const dualEventEngine = new AudioEngine();
+  const dualFile = { name: 'dual.mp3', size: 1024 } as File;
+  let stateNotifCount = 0;
+  dualEventEngine.subscribe(() => { stateNotifCount++; });
+  const pDual = dualEventEngine.loadAudioFile(dualFile);
+  const dualAudio = (dualEventEngine as any).audio as MockAudioElement;
+  dualAudio.dispatchEvent('loadedmetadata');
+  await pDual;
+  const countAfterMeta = stateNotifCount;
+  // Dispatch canplay afterwards
+  dualAudio.dispatchEvent('canplay');
+  assert(stateNotifCount === countAfterMeta, 'canplay following loadedmetadata does not trigger duplicate state notifications');
+  assert(dualEventEngine.getState().loadState === 'loaded', 'Engine remains in loaded state after subsequent canplay');
+  dualEventEngine.destroy();
+
+  // 32. error event and loadedmetadata race: error settles first, loadedmetadata ignored
+  const raceErrorEngine = new AudioEngine();
+  const errorFile = { name: 'error.mp3', size: 1024 } as File;
+  const pErrorRace = raceErrorEngine.loadAudioFile(errorFile);
+  const errorAudio = (raceErrorEngine as any).audio as MockAudioElement;
+  errorAudio.dispatchEvent('error');
+  errorAudio.dispatchEvent('loadedmetadata');
+  await pErrorRace;
+  assert(raceErrorEngine.getState().loadState === 'error', 'Error event takes precedence when dispatched first');
+  raceErrorEngine.destroy();
+
+  // 33. All stale events on superseded instances (A -> B -> C) ignored
+  const robustEngine = new AudioEngine();
+  const fA = { name: 'fA.mp3', size: 1024 } as File;
+  const fB = { name: 'fB.mp3', size: 2048 } as File;
+  const fC = { name: 'fC.mp3', size: 4096 } as File;
+  const pA_rob = robustEngine.loadAudioFile(fA);
+  const audioA = (robustEngine as any).audio as MockAudioElement;
+  const pB_rob = robustEngine.loadAudioFile(fB);
+  const audioB = (robustEngine as any).audio as MockAudioElement;
+  const pC_rob = robustEngine.loadAudioFile(fC);
+  await Promise.all([pA_rob, pB_rob, pC_rob]);
+
+  // Dispatch whole suite of stale events on A and B
+  if (audioA) {
+    audioA.dispatchEvent('loadedmetadata');
+    audioA.dispatchEvent('canplay');
+    audioA.dispatchEvent('timeupdate');
+    audioA.dispatchEvent('play');
+    audioA.dispatchEvent('pause');
+    audioA.dispatchEvent('ended');
+    audioA.dispatchEvent('error');
+  }
+  if (audioB) {
+    audioB.dispatchEvent('loadedmetadata');
+    audioB.dispatchEvent('canplay');
+    audioB.dispatchEvent('timeupdate');
+    audioB.dispatchEvent('play');
+    audioB.dispatchEvent('pause');
+    audioB.dispatchEvent('ended');
+    audioB.dispatchEvent('error');
+  }
+  assert(robustEngine.getState().fileName === 'fC.mp3', 'Robust engine preserves fileName fC.mp3 despite stale events');
+  assert(robustEngine.getState().loadState === 'loaded', 'Robust engine preserves loaded state despite stale error events');
+  robustEngine.destroy();
+
+  // 34. Complete Object URL lifecycle: no memory leaks and no duplicate revocations
+  const urlEngine = new AudioEngine();
+  const url1 = { name: 'u1.mp3', size: 1024 } as File;
+  const url2 = { name: 'u2.mp3', size: 1024 } as File;
+  const preCreateCount = createdUrls.length;
+  const preRevokeCount = revokedUrls.length;
+  await urlEngine.loadAudioFile(url1);
+  await urlEngine.loadAudioFile(url2);
+  urlEngine.destroy();
+  const postCreateCount = createdUrls.length;
+  const postRevokeCount = revokedUrls.length;
+  assert(postCreateCount - preCreateCount === 2, 'Two Object URLs created for two files');
+  assert(postRevokeCount - preRevokeCount === 2, 'Both Object URLs revoked cleanly upon replacement and destroy');
+
+  // Verify no duplicate revocations across the test session
+  const revokedSet = new Set<string>();
+  let hasDuplicateRevoke = false;
+  for (const u of revokedUrls) {
+    if (revokedSet.has(u)) {
+      hasDuplicateRevoke = true;
+      break;
+    }
+    revokedSet.add(u);
+  }
+  assert(!hasDuplicateRevoke, 'No Object URL was revoked more than once (no double-revoke)');
+
   console.log(`\nVerification Complete: ${passed} / ${total} tests passed.`);
   if (passed === total) {
     console.log('🎉 ALL 21 PHASE 4-1 VERIFICATION ITEMS CONFIRMED SUCCESSFUL!\n');

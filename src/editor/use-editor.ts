@@ -508,14 +508,19 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
       try {
         stopPlayback();
         await engineLoadAudioFile(file);
-        seekTime(0);
-        showNotification(`音源を読み込みました: ${file.name}`, 'success');
+        const state = audioEngine.getState();
+        if (state.loadState === 'loaded' && state.fileName === file.name) {
+          seekTime(0);
+          showNotification(`音源を読み込みました: ${file.name}`, 'success');
+        } else if (state.loadState === 'error') {
+          showNotification(`音源読み込みエラー: ${state.errorMessage || '音源の読み込みに失敗しました'}`, 'error');
+        }
       } catch (err: any) {
         console.error('Failed to load audio file:', err);
         showNotification(`音源読み込みエラー: ${err?.message || String(err)}`, 'error');
       }
     },
-    [stopPlayback, engineLoadAudioFile, seekTime, showNotification]
+    [stopPlayback, engineLoadAudioFile, audioEngine, seekTime, showNotification]
   );
 
   // Measure seeking (jump playhead to measure start)

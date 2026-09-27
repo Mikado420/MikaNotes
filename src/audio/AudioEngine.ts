@@ -43,7 +43,7 @@ export class AudioEngine {
   private rafId: number | null = null;
   private loadGeneration = 0;
   private loadFallbackTimeoutId: any = null;
-  private boundOnLoadedMetadata: (() => void) | null = null;
+  private boundOnDurationChange: (() => void) | null = null;
   private boundOnTimeUpdate: (() => void) | null = null;
   private boundOnPlay: (() => void) | null = null;
   private boundOnPause: (() => void) | null = null;
@@ -142,14 +142,14 @@ export class AudioEngine {
         // Safe no-op
       }
 
-      if (this.boundOnLoadedMetadata) this.audio.removeEventListener('loadedmetadata', this.boundOnLoadedMetadata);
+      if (this.boundOnDurationChange) this.audio.removeEventListener('durationchange', this.boundOnDurationChange);
       if (this.boundOnTimeUpdate) this.audio.removeEventListener('timeupdate', this.boundOnTimeUpdate);
       if (this.boundOnPlay) this.audio.removeEventListener('play', this.boundOnPlay);
       if (this.boundOnPause) this.audio.removeEventListener('pause', this.boundOnPause);
       if (this.boundOnEnded) this.audio.removeEventListener('ended', this.boundOnEnded);
       if (this.boundOnError) this.audio.removeEventListener('error', this.boundOnError);
 
-      this.boundOnLoadedMetadata = null;
+      this.boundOnDurationChange = null;
       this.boundOnTimeUpdate = null;
       this.boundOnPlay = null;
       this.boundOnPause = null;
@@ -271,6 +271,7 @@ export class AudioEngine {
       const cleanup = () => {
         audio.removeEventListener('loadedmetadata', onLoadedMetadata);
         audio.removeEventListener('canplay', onLoadedMetadata);
+        audio.removeEventListener('durationchange', onDurationChange);
         audio.removeEventListener('timeupdate', onTimeUpdate);
         audio.removeEventListener('play', onPlay);
         audio.removeEventListener('pause', onPause);
@@ -305,6 +306,10 @@ export class AudioEngine {
           pending.timeoutId = null;
         }
 
+        // Detach one-shot load listeners immediately upon settlement
+        audio.removeEventListener('loadedmetadata', onLoadedMetadata);
+        audio.removeEventListener('canplay', onLoadedMetadata);
+
         this.pendingLoads.delete(generation);
 
         // If this generation was superseded, clean up audio/URL and resolve silently
@@ -319,11 +324,14 @@ export class AudioEngine {
         pending.objectUrl = '';
 
         // Bind active listeners for cleanupCurrentAudio
+        this.boundOnDurationChange = onDurationChange;
         this.boundOnTimeUpdate = onTimeUpdate;
         this.boundOnPlay = onPlay;
         this.boundOnPause = onPause;
         this.boundOnEnded = onEnded;
         this.boundOnError = onError;
+
+        audio.addEventListener('durationchange', onDurationChange);
 
         const dur = isFinite(audio.duration) && !isNaN(audio.duration) ? audio.duration : 0;
         this.state = {
@@ -367,6 +375,16 @@ export class AudioEngine {
         };
         this.notifyState();
         resolve();
+      };
+
+      const onDurationChange = () => {
+        if (!this.audio || this.loadGeneration !== generation) return;
+        if (isFinite(audio.duration) && !isNaN(audio.duration) && audio.duration > 0) {
+          if (this.state.duration !== audio.duration) {
+            this.state.duration = audio.duration;
+            this.notifyState();
+          }
+        }
       };
 
       const onLoadedMetadata = () => {
