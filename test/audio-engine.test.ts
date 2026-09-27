@@ -1,27 +1,29 @@
 /**
- * MikaNotes Phase 4-1 Audio Engine & Synchronization Verification Suite
- * Tests all 21 verification items specified in the Phase 4-1 requirements:
- * 1. Audio file loading (File -> Object URL -> AudioElement)
- * 2. Audio duration retrieval
- * 3. Play
- * 4. Pause
- * 5. Resume
- * 6. Stop
- * 7. Seek (arbitrary seconds jump)
- * 8. Audio currentTime retrieval (RAF / timeupdate)
- * 9. Timeline playhead synchronization (Audio time -> Timeline X coordinate)
- * 10. Timeline playhead interaction -> Audio seek
- * 11. Timeline auto-scroll compatibility
- * 12. Playback from chart start (0.0s)
- * 13. Stop at chart end
- * 14. Fallback when audio is unloaded (standalone timeline playback unaffected)
- * 15. Audio replacement (revoke old Object URL, load new audio)
- * 16. Memory leak prevention (destroy / Object URL revocation)
- * 17. OFFSET consideration in Audio-Timeline sync
- * 18. BPMCHANGE handling in Audio-Timeline sync
- * 19. MEASURE (time signature change) handling in Audio-Timeline sync
- * 20. Playback rate control
- * 21. Volume control
+ * MikaNotes Phase 4-1 & Phase 4-2 Audio Engine & Synchronization Verification Suite
+ *
+ * Comprehensive verification of HTMLAudioElement playback, lifecycle safety,
+ * generation-based race condition protection, in-flight stale event isolation,
+ * resource teardown, and bidirectional timeline synchronization:
+ *
+ * 1. Initial state & unloading
+ * 2. Audio file loading (File -> Object URL -> AudioElement)
+ * 3. Audio duration retrieval
+ * 4. Play / Pause / Resume / Stop / Seek / Relative Seek
+ * 5. Playback rate & volume control
+ * 6. High-frequency timeupdate & RAF subscriber notifications
+ * 7. Audio replacement & clean URL revocation
+ * 8. Memory leak prevention & idempotent cleanup
+ * 9. Audio-less playback fallback
+ * 10. Ended event & replay reset
+ * 11. Generation token safety & rapid audio switching (A -> B, A -> B -> C)
+ * 12. In-flight and post-flight stale event isolation (loadedmetadata, canplay, durationchange, timeupdate, play, pause, ended, error)
+ * 13. Destroy / dispose during loading
+ * 14. Fallback timeout & error settlement
+ * 15. Independent loadedmetadata and canplay settlement
+ * 16. Event ordering permutations (loadedmetadata -> canplay, canplay -> loadedmetadata)
+ * 17. Dynamic durationchange before and after load settlement
+ * 18. Object URL lifecycle & double-revoke prevention
+ * 19. Guaranteed Promise settlement without dangling promises
  */
 
 import { AudioEngine } from '../src/audio/AudioEngine';
@@ -33,11 +35,14 @@ import { calculateTimelineLayout, snapTimelineXToGrid } from '../src/editor/coor
 class MockAudioElement {
   public src = '';
   public currentTime = 0;
-  public duration = 120.5; // 2 minutes 0.5s
+  public duration = 120.5; // Default mock duration: 2 minutes 0.5s
   public paused = true;
   public volume = 1.0;
   public playbackRate = 1.0;
   public ended = false;
+  public autoLoad = true; // Auto-dispatch loadedmetadata/canplaythrough on load()
+  public error: { code: number; message?: string } | null = null;
+  private loadTimer: any = null;
   private listeners: Record<string, ((e?: any) => void)[]> = {};
 
   addEventListener(event: string, handler: (e?: any) => void) {
@@ -56,6 +61,40 @@ class MockAudioElement {
     for (const h of handlers) h(detail);
   }
 
+  /**
+   * Helper: cleanly trigger an event with optional detail
+   */
+  trigger(event: string, detail?: any) {
+    this.dispatchEvent(event, detail);
+  }
+
+  /**
+   * Helper: update duration and dispatch durationchange
+   */
+  setDuration(newDuration: number) {
+    this.duration = newDuration;
+    this.dispatchEvent('durationchange');
+  }
+
+  /**
+   * Helper: set error and dispatch error event
+   */
+  setError(code: number, message?: string) {
+    this.error = { code, message };
+    this.dispatchEvent('error');
+  }
+
+  /**
+   * Disable auto loading and cancel any pending auto load timer
+   */
+  disableAutoLoad() {
+    this.autoLoad = false;
+    if (this.loadTimer) {
+      clearTimeout(this.loadTimer);
+      this.loadTimer = null;
+    }
+  }
+
   async play() {
     this.paused = false;
     this.dispatchEvent('play');
@@ -68,11 +107,19 @@ class MockAudioElement {
   }
 
   load() {
-    // Simulate async metadata load
-    setTimeout(() => {
-      this.dispatchEvent('loadedmetadata');
-      this.dispatchEvent('canplaythrough');
-    }, 10);
+    if (this.loadTimer) {
+      clearTimeout(this.loadTimer);
+      this.loadTimer = null;
+    }
+    if (this.autoLoad) {
+      // Simulate async metadata load
+      this.loadTimer = setTimeout(() => {
+        if (this.autoLoad) {
+          this.dispatchEvent('loadedmetadata');
+          this.dispatchEvent('canplaythrough');
+        }
+      }, 10);
+    }
   }
 }
 
@@ -538,7 +585,7 @@ OFFSET:1.5
   const noResponseFile = { name: 'stall.mp3', size: 1024 } as File;
   const pStall = stallEngine.loadAudioFile(noResponseFile);
   const stallAudio = (stallEngine as any).audio as MockAudioElement;
-  stallAudio.load = () => {}; // Prevent auto-dispatching loadedmetadata
+  stallAudio.disableAutoLoad(); // Prevent auto-dispatching loadedmetadata
   const stallPending = (stallEngine as any).pendingLoads.get((stallEngine as any).loadGeneration);
   assert(stallPending !== undefined, 'Pending load exists for stalled audio');
   assert(stallPending.timeoutId !== null, 'Timeout timer was scheduled for pending load');
@@ -552,31 +599,38 @@ OFFSET:1.5
   stallEngine.destroy();
 
   // 39. In-flight A -> B stale event isolation:
-  // A load -> B load -> A dispatches loadedmetadata, canplay, durationchange, error -> B dispatches loadedmetadata
+  // A load -> B load -> A dispatches loadedmetadata, canplay, durationchange, timeupdate, play, pause, ended, error -> B dispatches loadedmetadata
   const interleavedEngine = new AudioEngine();
   const fileA_il = { name: 'interleavedA.mp3', size: 1024 } as File;
   const fileB_il = { name: 'interleavedB.mp3', size: 2048 } as File;
   const pA_il = interleavedEngine.loadAudioFile(fileA_il);
   const audioA_il = (interleavedEngine as any).audio as MockAudioElement;
   audioA_il.duration = 60.0;
-  audioA_il.load = () => {}; // hold auto-dispatch
+  audioA_il.disableAutoLoad(); // hold auto-dispatch
 
   const pB_il = interleavedEngine.loadAudioFile(fileB_il);
   const audioB_il = (interleavedEngine as any).audio as MockAudioElement;
   audioB_il.duration = 180.0;
-  audioB_il.load = () => {}; // hold auto-dispatch
+  audioB_il.disableAutoLoad(); // hold auto-dispatch
 
   // Stale events fired on A while B is still pending
   audioA_il.dispatchEvent('loadedmetadata');
   audioA_il.dispatchEvent('canplay');
   audioA_il.duration = 999.0;
   audioA_il.dispatchEvent('durationchange');
+  audioA_il.currentTime = 55.0;
+  audioA_il.dispatchEvent('timeupdate');
+  audioA_il.dispatchEvent('play');
+  audioA_il.dispatchEvent('pause');
+  audioA_il.dispatchEvent('ended');
   (audioA_il as any).error = { code: 4 };
   audioA_il.dispatchEvent('error');
 
   assert(interleavedEngine.getState().loadState === 'loading', 'In-flight engine remains in loading state while waiting for B despite A events');
   assert(interleavedEngine.getState().fileName === 'interleavedB.mp3', 'In-flight engine fileName remains interleavedB.mp3 despite A events');
   assert(interleavedEngine.getState().duration !== 60.0 && interleavedEngine.getState().duration !== 999.0, 'In-flight A duration does not corrupt engine');
+  assert(interleavedEngine.getState().currentTime === 0, 'In-flight A timeupdate does not change active engine currentTime');
+  assert(interleavedEngine.getState().isPlaying === false, 'In-flight A play/pause does not change active engine isPlaying');
   assert(interleavedEngine.getState().errorMessage === null, 'In-flight A error does not trigger error on active engine');
 
   // B finishes loading
@@ -600,17 +654,17 @@ OFFSET:1.5
   const pA_tr = tripleInterEngine.loadAudioFile(fileA_tr);
   const audioA_tr = (tripleInterEngine as any).audio as MockAudioElement;
   audioA_tr.duration = 50.0;
-  audioA_tr.load = () => {};
+  audioA_tr.disableAutoLoad();
 
   const pB_tr = tripleInterEngine.loadAudioFile(fileB_tr);
   const audioB_tr = (tripleInterEngine as any).audio as MockAudioElement;
   audioB_tr.duration = 100.0;
-  audioB_tr.load = () => {};
+  audioB_tr.disableAutoLoad();
 
   const pC_tr = tripleInterEngine.loadAudioFile(fileC_tr);
   const audioC_tr = (tripleInterEngine as any).audio as MockAudioElement;
   audioC_tr.duration = 240.0;
-  audioC_tr.load = () => {};
+  audioC_tr.disableAutoLoad();
 
   // A and B dispatch whole suite of stale events
   for (const aud of [audioA_tr, audioB_tr]) {
