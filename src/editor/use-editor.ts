@@ -39,7 +39,7 @@ import {
   createSpecialNote,
   eraseSpecialNoteAtPosition,
 } from './special-notes';
-import { registerUnsavedWorkGuard } from '../pwa/usePWAUpdate';
+import { registerUnsavedWorkGuard } from '../pwa/unsaved-work-guard';
 import { useAudioEngine, AudioEngineState, AudioEngine } from '../audio';
 
 export interface UseEditorOptions {
