@@ -159,6 +159,7 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
     loadAudioFile: engineLoadAudioFile,
     play: audioPlay,
     pause: audioPause,
+    stop: audioStop,
     seek: audioSeek,
     setVolume,
     setPlaybackRate,
@@ -198,7 +199,21 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
   const animationFrameIdRef = useRef<number | null>(null);
   const loadRequestIdRef = useRef<number>(0);
 
-  const stopPlayback = useCallback(() => {
+  // Time seeking (synchronizing with audio when loaded)
+  const seekTime = useCallback(
+    (time: number) => {
+      const safeTime = Math.max(0, Math.min(totalDuration, isNaN(time) || !isFinite(time) ? 0 : time));
+      setCurrentTime(safeTime);
+      if (isAudioLoaded) {
+        const targetAudioTime = safeTime - chartOffset;
+        audioSeek(targetAudioTime);
+      }
+    },
+    [totalDuration, isAudioLoaded, chartOffset, audioSeek]
+  );
+
+  // Playback control functions
+  const pausePlayback = useCallback(() => {
     setIsPlaying(false);
     if (isAudioLoaded) {
       audioPause();
@@ -209,6 +224,23 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
     }
     lastFrameTimeRef.current = null;
   }, [isAudioLoaded, audioPause]);
+
+  // Backward compatible alias
+  const stopPlayback = pausePlayback;
+
+  // Full stop: pause and reset time and playhead to 0
+  const stop = useCallback(() => {
+    setIsPlaying(false);
+    if (isAudioLoaded) {
+      audioStop();
+    }
+    if (animationFrameIdRef.current) {
+      cancelAnimationFrame(animationFrameIdRef.current);
+      animationFrameIdRef.current = null;
+    }
+    lastFrameTimeRef.current = null;
+    setCurrentTime(0);
+  }, [isAudioLoaded, audioStop]);
 
   const startPlayback = useCallback(async () => {
     setPendingSpecialNote(null);
@@ -224,7 +256,7 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
 
   const togglePlayback = useCallback(() => {
     if (isPlaying) {
-      stopPlayback();
+      pausePlayback();
     } else {
       // If at or near the end, restart from beginning
       const isAtEnd =
@@ -232,14 +264,11 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
         (isAudioLoaded && audioState.duration > 0 && audioEngine.getCurrentTime() >= audioState.duration - 0.05);
 
       if (isAtEnd) {
-        setCurrentTime(0);
-        if (isAudioLoaded) {
-          audioSeek(0 - chartOffset);
-        }
+        seekTime(0);
       }
       startPlayback();
     }
-  }, [isPlaying, currentTime, totalDuration, isAudioLoaded, audioState.duration, audioEngine, chartOffset, audioSeek, startPlayback, stopPlayback]);
+  }, [isPlaying, currentTime, totalDuration, isAudioLoaded, audioState.duration, audioEngine, seekTime, startPlayback, pausePlayback]);
 
   // Synchronize isPlaying with audioState when audio is loaded
   useEffect(() => {
@@ -481,19 +510,6 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
     setZoom(Math.max(50, Math.min(400, val)));
   }, []);
 
-  // Time seeking (synchronizing with audio when loaded)
-  const seekTime = useCallback(
-    (time: number) => {
-      const safeTime = Math.max(0, Math.min(totalDuration, isNaN(time) || !isFinite(time) ? 0 : time));
-      setCurrentTime(safeTime);
-      if (isAudioLoaded) {
-        const targetAudioTime = safeTime - chartOffset;
-        audioSeek(targetAudioTime);
-      }
-    },
-    [totalDuration, isAudioLoaded, chartOffset, audioSeek]
-  );
-
   // Timeline X position seeking (bidirectional: X -> RationalPosition -> time -> audio)
   const seekTimelineX = useCallback(
     (timelineX: number) => {
@@ -583,7 +599,7 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
             if (!snapResult) return;
 
             const { measureIndex, rational, time, snappedX } = snapResult;
-            setCurrentTime(time);
+            seekTime(time);
             setSelectedMeasureForEdit(measureIndex);
 
             const validation = validateSpecialStart(currentCourse, measureIndex, rational, time);
@@ -664,7 +680,7 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
             setPendingSpecialNote(null);
             pushHistory(newChart);
             showNotification(`${label}を作成しました`, 'success');
-            setCurrentTime(endTime);
+            seekTime(endTime);
             setSelectedMeasureForEdit(endMeasureIndex);
             return;
           }
@@ -676,7 +692,7 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
           if (!snapResult) return;
 
           const { measureIndex, rational, time } = snapResult;
-          setCurrentTime(time);
+          seekTime(time);
           setSelectedMeasureForEdit(measureIndex);
 
           const targetM = currentCourse.measures[measureIndex];
@@ -922,21 +938,21 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
   const loadTja = useCallback((tjaText: string, newFileName?: string) => {
     try {
       setPendingSpecialNote(null);
+      pausePlayback();
       const parsed = parseTJA(tjaText);
       const initialKey = getPreferredCourseKey(parsed);
       historyRef.current = [tjaText];
       historyIndexRef.current = 0;
       setChart(parsed);
       setActiveCourseKey(initialKey);
-      setCurrentTime(0);
-      setIsPlaying(false);
+      seekTime(0);
       if (newFileName) setFileName(newFileName);
       setHistoryVersion((v) => v + 1);
     } catch (err: any) {
       console.error('Failed to load TJA:', err);
-      alert('TJA解析に失敗しました: ' + err.message);
+      showNotification('TJA解析に失敗しました: ' + (err?.message || String(err)), 'error');
     }
-  }, []);
+  }, [pausePlayback, seekTime, showNotification]);
 
   // Apply TJA text directly from Text Editor with error protection
   const applyTjaText = useCallback(
@@ -1012,6 +1028,9 @@ export function useEditor({ initialTjaText, initialFileName = 'example.tja' }: U
     setBpmInput,
     setMeasureInput,
     togglePlayback,
+    stop,
+    pausePlayback,
+    stopPlayback,
     seekTime,
     seekTimelineX,
     seekToMeasure,
